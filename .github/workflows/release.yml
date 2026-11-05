@@ -14,10 +14,7 @@
 # Secrets:
 #   PACKAGES_GPG_KEY          armored GPG private key that signs the packages (required)
 #   PACKAGES_GPG_PASSPHRASE   its passphrase
-# Upload to the package server (only when the variable PACKAGES_SFTP_UPLOAD is "true"):
-#   SFTP_HOST, SFTP_PORT (default 22), SFTP_USER, SFTP_PRIVATE_KEY (OpenSSH format),
-#   SFTP_KNOWN_HOSTS (the server's line from ssh-keyscan, checked, never trusted on first use),
-#   SFTP_DIR (the directory there; the files go to <SFTP_DIR>/<tag>/)
+# After a stable release, packages.yml rebuilds the apt and dnf repository on GitHub Pages.
 
 name: Release
 
@@ -171,46 +168,11 @@ jobs:
       - name: Build the package
         run: nix --extra-experimental-features 'nix-command flakes' build .#veil --print-build-logs
 
-  sftp-upload:
-    name: Upload packages to the package server
+  package-repository:
+    name: Package repository
     needs: [github-release, nix]
-    if: vars.PACKAGES_SFTP_UPLOAD == 'true'
-    runs-on: ubuntu-24.04
+    if: ${{ !contains(github.ref_name, '-') }}
+    uses: ./.github/workflows/packages.yml
     permissions:
-      contents: read
-    steps:
-      - name: Download the release's packages
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          mkdir upload
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir upload \
-            --pattern '*.deb' --pattern '*.rpm' --pattern '*.asc' --pattern '*.sigstore.json' --pattern 'checksums.txt'
-          (cd upload && sha256sum --ignore-missing -c checksums.txt)
-
-      - name: Upload with sftp
-        env:
-          SFTP_HOST: ${{ secrets.SFTP_HOST }}
-          SFTP_PORT: ${{ secrets.SFTP_PORT }}
-          SFTP_USER: ${{ secrets.SFTP_USER }}
-          SFTP_PRIVATE_KEY: ${{ secrets.SFTP_PRIVATE_KEY }}
-          SFTP_KNOWN_HOSTS: ${{ secrets.SFTP_KNOWN_HOSTS }}
-          SFTP_DIR: ${{ secrets.SFTP_DIR }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          for v in SFTP_HOST SFTP_USER SFTP_PRIVATE_KEY SFTP_KNOWN_HOSTS SFTP_DIR; do
-            [ -n "${!v}" ] || { echo "::error::secret $v is missing"; exit 1; }
-          done
-          umask 077
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SFTP_PRIVATE_KEY" > ~/.ssh/upload_key
-          printf '%s\n' "$SFTP_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          {
-            echo "-mkdir $SFTP_DIR/$TAG"
-            for f in upload/*; do echo "put $f $SFTP_DIR/$TAG/"; done
-          } > "$RUNNER_TEMP/sftp-batch"
-          sftp -b "$RUNNER_TEMP/sftp-batch" -i ~/.ssh/upload_key -P "${SFTP_PORT:-22}" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts -o BatchMode=yes \
-            "$SFTP_USER@$SFTP_HOST"
-          rm -f ~/.ssh/upload_key
+      contents: write
+    secrets: inherit

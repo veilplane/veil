@@ -76,11 +76,26 @@ hole punching, status).
 ## 2. Installing and running
 
 Every release has deb and rpm packages for amd64 and arm64 (section 12): they install the
-binary as `/usr/bin/veil`, the systemd unit and `/etc/veil`, and depend on iproute2.
+binary as `/usr/bin/veil`, the systemd unit and `/etc/veil`, and depend on iproute2. The
+package repository keeps them up to date with the system's other packages; its page shows the
+same commands with its address:
 
 ```sh
-apt install ./veil_1.2.3-1_amd64.deb           # Debian, Ubuntu
-dnf install ./veil-1.2.3-1.x86_64.rpm        # Fedora, RHEL, Rocky, Alma
+# Debian, Ubuntu
+install -d -m 0755 /etc/apt/keyrings
+curl -fsSLo /etc/apt/keyrings/veil.asc https://veilplane.github.io/veil/veil-packages.asc
+echo "deb [signed-by=/etc/apt/keyrings/veil.asc] https://veilplane.github.io/veil/deb ./" > /etc/apt/sources.list.d/veil.list
+apt update && apt install veil
+
+# Fedora, RHEL, Rocky, Alma
+curl -fsSLo /etc/yum.repos.d/veil.repo https://veilplane.github.io/veil/rpm/veil.repo
+dnf install veil
+```
+
+A single package from a release works too (`apt install ./veil_1.2.3-1_amd64.deb`,
+`dnf install ./veil-1.2.3-1.x86_64.rpm`). Then:
+
+```sh
 echo '{"join": "vp1.mzxw6ytboi3tcnzrgq2tmmzz"}' > /etc/veil/agent.json   # the join code from the dashboard
 systemctl enable --now veil
 ```
@@ -324,7 +339,7 @@ Every command takes `-config` and `-state` (or `VEIL_CONFIG`, `VEIL_STATE`).
 | `agent/` | the agent: `agent.go` (loop, features, status), `api.go` (agent API, tokens, gRPC connection), `files.go` (agent.json, keys, invite files), `tools.go` (invite, leave, status) |
 | `proxy/` | the etcd proxy, with its own README |
 | `mesh/` | the mesh, with its own README |
-| `packaging/` | the systemd unit; deb and rpm: nfpm configuration, install and removal scripts, `build-packages.sh` |
+| `packaging/` | the systemd unit; deb and rpm: nfpm configuration, install and removal scripts, `build-packages.sh`; `build-repo.sh` for the apt and dnf repository |
 | `flake.nix`, `nix/` | the Nix package and the NixOS module; `nix/update-vendor-hash.sh` after a change to the Go dependencies |
 
 ## 11. Building and testing
@@ -390,12 +405,12 @@ The repository needs these secrets for a release:
 | `PACKAGES_GPG_KEY` | the package key: an armored GPG private key (`gpg --armor --export-secret-keys KEYID`). Without it the release fails: packages are only published signed. |
 | `PACKAGES_GPG_PASSPHRASE` | its passphrase |
 
-**Package server.** With the repository variable `PACKAGES_SFTP_UPLOAD` set to `true`, the
-release also uploads the packages, their signatures, `checksums.txt` and the Sigstore bundles
-with sftp to `<SFTP_DIR>/<tag>/`. Secrets: `SFTP_HOST`, `SFTP_PORT` (optional, 22),
-`SFTP_USER`, `SFTP_PRIVATE_KEY` (OpenSSH format, a key only for this upload), `SFTP_KNOWN_HOSTS`
-(the server's line from `ssh-keyscan`; the host key is checked, never trusted on first use) and
-`SFTP_DIR`. The job checks the downloaded files against `checksums.txt` first.
+**Package repository.** After every stable release, `packages.yml` rebuilds an apt and a dnf
+repository from the newest ten stable releases (`packaging/build-repo.sh`), signs its metadata
+with the package key and force-pushes it as a single commit to the branch `gh-pages`, which
+GitHub Pages serves. Setup, once: Settings → Pages → "Deploy from a branch", `gh-pages`, `/`.
+For an own domain, set the repository variable `PACKAGES_DOMAIN` and a CNAME record pointing at
+`<owner>.github.io`. The workflow can also be run by hand, for instance after deleting a release.
 
 **Nix and the Go dependencies.** `nix/package.nix` holds the hash of the Go dependencies
 (`vendorHash`). After a change to `go.mod` or `go.sum`, run `nix/update-vendor-hash.sh`; until

@@ -177,6 +177,19 @@ jobs:
           rpm -qip dist/veil-*.x86_64.rpm
           rpm -qlp dist/veil-*.x86_64.rpm
 
+      - name: Package repository (throwaway key), installed from with apt
+        run: |
+          sudo apt-get install -y -q --no-install-recommends apt-utils createrepo-c
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          gpg --batch --pinentry-mode loopback --passphrase '' --quick-gen-key "veil CI <ci@invalid>" ed25519 sign 1d
+          mkdir pool && cp dist/*.deb dist/*.rpm pool/
+          packaging/build-repo.sh pool site "file://$PWD/site"
+          echo "deb [signed-by=$PWD/site/veil-packages.asc] file://$PWD/site/deb ./" | sudo tee /etc/apt/sources.list.d/veil.list
+          sudo apt-get update -q
+          sudo apt-get install -y veil
+          veil version
+
   nix:
     name: Nix flake
     runs-on: ubuntu-24.04

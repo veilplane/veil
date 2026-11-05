@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: FSL-1.1-ALv2
+# Copyright 2026 Julian Siebert. See LICENSE.md.
+#
+# The apt and dnf package repository, served by GitHub Pages from the branch gh-pages.
+#
+# Runs after every stable release (called by release.yml) and by hand (Actions → Package
+# repository → Run workflow), for instance after deleting a release. It rebuilds the whole
+# repository from the GitHub releases every time: the newest KEEP_VERSIONS stable releases,
+# pre-releases never. The branch gh-pages always holds exactly one commit, so the git history
+# does not grow with every package.
+#
+# Setup, once: Settings → Pages → Source "Deploy from a branch", branch gh-pages, folder /.
+# For your own domain set the repository variable PACKAGES_DOMAIN (for example
+# packages.example.com), point a CNAME record at <owner>.github.io and tick "Enforce HTTPS".
+#
+# Secrets: PACKAGES_GPG_KEY and PACKAGES_GPG_PASSPHRASE, the same key that signs the packages.
+
+name: Package repository
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-repository
+  cancel-in-progress: false
+
+env:
+  KEEP_VERSIONS: 10
+
+jobs:
+  publish:
+    name: Build and publish the package repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install apt-ftparchive and createrepo_c
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends apt-utils createrepo-c
+
+      - name: Import the package signing key
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: |
+          if [ -z "$PACKAGES_GPG_KEY" ]; then
+            echo "::error::secret PACKAGES_GPG_KEY is missing"
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$PACKAGES_GPG_KEY" | gpg --batch --import
+          gpg --batch --list-secret-keys --keyid-format long
+
+      - name: Download the packages of the newest stable releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir pool
+          tags=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --limit "$KEEP_VERSIONS" --json tagName --jq '.[].tagName')
+          if [ -z "$tags" ]; then
+            echo "::error::no stable release yet"
+            exit 1
+          fi
+          for tag in $tags; do
+            dir="$RUNNER_TEMP/release/$tag"
+            mkdir -p "$dir"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+              --pattern '*.deb' --pattern '*.rpm' --pattern 'checksums.txt'
+            (cd "$dir" && sha256sum --ignore-missing -c checksums.txt)
+            cp "$dir"/*.deb "$dir"/*.rpm pool/
+            echo "$tag"
+          done
+
+      - name: Build the repository
+        env:
+          GPG_PASSPHRASE: ${{ secrets.PACKAGES_GPG_PASSPHRASE }}
+          PACKAGES_DOMAIN: ${{ vars.PACKAGES_DOMAIN }}
+        run: |
+          if [ -n "$PACKAGES_DOMAIN" ]; then
+            base="https://$PACKAGES_DOMAIN"
+          else
+            base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          fi
+          packaging/build-repo.sh pool site "$base"
+          [ -z "$PACKAGES_DOMAIN" ] || echo "$PACKAGES_DOMAIN" > site/CNAME
+
+      - name: Publish to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "packages from ${GITHUB_SHA::12} (run ${GITHUB_RUN_ID})"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c http.extraheader="AUTHORIZATION: basic $auth" \
+            push --force "https://github.com/${GITHUB_REPOSITORY}.git" gh-pages
