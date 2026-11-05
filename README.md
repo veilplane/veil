@@ -83,12 +83,12 @@ same commands with its address:
 ```sh
 # Debian, Ubuntu
 install -d -m 0755 /etc/apt/keyrings
-curl -fsSLo /etc/apt/keyrings/veil.asc https://veilplane.github.io/veil/veil-packages.asc
-echo "deb [signed-by=/etc/apt/keyrings/veil.asc] https://veilplane.github.io/veil/deb ./" > /etc/apt/sources.list.d/veil.list
+curl -fsSLo /etc/apt/keyrings/veil.asc https://packages.veilplane.com/veil-packages.asc
+echo "deb [signed-by=/etc/apt/keyrings/veil.asc] https://packages.veilplane.com/deb ./" > /etc/apt/sources.list.d/veil.list
 apt update && apt install veil
 
 # Fedora, RHEL, Rocky, Alma
-curl -fsSLo /etc/yum.repos.d/veil.repo https://veilplane.github.io/veil/rpm/veil.repo
+curl -fsSLo /etc/yum.repos.d/veil.repo https://packages.veilplane.com/rpm/veil.repo
 dnf install veil
 ```
 
@@ -405,12 +405,11 @@ The repository needs these secrets for a release:
 | `PACKAGES_GPG_KEY` | the package key: an armored GPG private key (`gpg --armor --export-secret-keys KEYID`). Without it the release fails: packages are only published signed. |
 | `PACKAGES_GPG_PASSPHRASE` | its passphrase |
 
-**Package repository.** After every stable release, `packages.yml` rebuilds an apt and a dnf
-repository from the newest ten stable releases (`packaging/build-repo.sh`), signs its metadata
-with the package key and force-pushes it as a single commit to the branch `gh-pages`, which
-GitHub Pages serves. Setup, once: Settings → Pages → "Deploy from a branch", `gh-pages`, `/`.
-For an own domain, set the repository variable `PACKAGES_DOMAIN` and a CNAME record pointing at
-`<owner>.github.io`. The workflow can also be run by hand, for instance after deleting a release.
+**Package repository.** After every stable release, `packages.yml` rebuilds the apt and dnf
+repository at `https://packages.veilplane.com` from the newest ten stable releases
+(`packaging/build-repo.sh`), signs its metadata with the package key and force-pushes it as a
+single commit to the branch `gh-pages`, which GitHub Pages serves. The workflow can also be run
+by hand, for instance after deleting a release.
 
 **Nix and the Go dependencies.** `nix/package.nix` holds the hash of the Go dependencies
 (`vendorHash`). After a change to `go.mod` or `go.sum`, run `nix/update-vendor-hash.sh`; until

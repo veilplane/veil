@@ -9,9 +9,10 @@
 # pre-releases never. The branch gh-pages always holds exactly one commit, so the git history
 # does not grow with every package.
 #
-# Setup, once: Settings → Pages → Source "Deploy from a branch", branch gh-pages, folder /.
-# For your own domain set the repository variable PACKAGES_DOMAIN (for example
-# packages.example.com), point a CNAME record at <owner>.github.io and tick "Enforce HTTPS".
+# Served at https://packages.veilplane.com (the file CNAME on gh-pages; the repository variable
+# PACKAGES_DOMAIN overrides the domain). Setup, once: Settings → Pages → Source "Deploy from a
+# branch", branch gh-pages, folder /; custom domain packages.veilplane.com, "Enforce HTTPS"; the
+# DNS record packages CNAME veilplane.github.io.
 #
 # Secrets: PACKAGES_GPG_KEY and PACKAGES_GPG_PASSPHRASE, the same key that signs the packages.
 
@@ -84,15 +85,10 @@ jobs:
       - name: Build the repository
         env:
           GPG_PASSPHRASE: ${{ secrets.PACKAGES_GPG_PASSPHRASE }}
-          PACKAGES_DOMAIN: ${{ vars.PACKAGES_DOMAIN }}
+          PACKAGES_DOMAIN: ${{ vars.PACKAGES_DOMAIN || 'packages.veilplane.com' }}
         run: |
-          if [ -n "$PACKAGES_DOMAIN" ]; then
-            base="https://$PACKAGES_DOMAIN"
-          else
-            base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
-          fi
-          packaging/build-repo.sh pool site "$base"
-          [ -z "$PACKAGES_DOMAIN" ] || echo "$PACKAGES_DOMAIN" > site/CNAME
+          packaging/build-repo.sh pool site "https://$PACKAGES_DOMAIN"
+          echo "$PACKAGES_DOMAIN" > site/CNAME
 
       - name: Publish to gh-pages
         env:
