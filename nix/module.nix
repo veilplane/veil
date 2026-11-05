@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: FSL-1.1-ALv2
 # Copyright 2026 Julian Siebert. See LICENSE.md.
 #
-# NixOS module: services.veil runs the agent as a systemd service. settings becomes
+# NixOS module: services.veil runs the agent as a systemd service. The default package comes
+# from this flake, which allows veil's license itself; the machine needs no allowUnfree. settings becomes
 # /etc/veil/agent.json (see the README, section 3). Do not put an invite file or a join code into
 # the Nix store, it is readable by everyone on the machine: point settings.join at a file outside
 # it (sops-nix, agenix, or copied by hand), e.g. "/run/secrets/veil.invite".

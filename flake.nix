@@ -16,7 +16,11 @@
   outputs = { self, nixpkgs }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
-      forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      # veil is source-available (FSL-1.1-ALv2), which nixpkgs counts as unfree: allow it, and only it
+      forAll = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs {
+        inherit system;
+        config.allowUnfreePredicate = pkg: nixpkgs.lib.getName pkg == "veil";
+      }));
       version = "0-unstable-" + builtins.substring 0 8 (self.lastModifiedDate or "19700101");
     in
     {
