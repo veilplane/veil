@@ -73,12 +73,22 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Cache etcd ${{ env.ETCD_VERSION }}
+        id: etcd-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/etcd-${{ env.ETCD_VERSION }}-linux-amd64
+          key: etcd-${{ env.ETCD_VERSION }}-linux-amd64
+
       - name: Download etcd ${{ env.ETCD_VERSION }}
+        if: steps.etcd-cache.outputs.cache-hit != 'true'
         run: |
           curl -fsSL -o "$RUNNER_TEMP/etcd.tgz" \
             "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz"
           tar xzf "$RUNNER_TEMP/etcd.tgz" -C "$RUNNER_TEMP"
-          echo "E2E_ETCD_DIR=$RUNNER_TEMP/etcd-${ETCD_VERSION}-linux-amd64" >> "$GITHUB_ENV"
+
+      - name: Use etcd
+        run: echo "E2E_ETCD_DIR=$RUNNER_TEMP/etcd-${ETCD_VERSION}-linux-amd64" >> "$GITHUB_ENV"
 
       - name: Run tests with race detector
         run: go test -race -count=1 ./...
@@ -138,13 +148,23 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install nfpm ${{ env.NFPM_VERSION }} (release binary, checksum checked)
+        run: |
+          v=${NFPM_VERSION#v}
+          base="https://github.com/goreleaser/nfpm/releases/download/${NFPM_VERSION}"
+          mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
+          curl -fsSLO "$base/nfpm_${v}_Linux_x86_64.tar.gz"
+          curl -fsSLO "$base/checksums.txt"
+          grep " nfpm_${v}_Linux_x86_64.tar.gz\$" checksums.txt | sha256sum -c -
+          tar xzf "nfpm_${v}_Linux_x86_64.tar.gz" nfpm
+          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+
       - name: Build binaries and packages
         run: |
           mkdir dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOARCH=$arch go build -trimpath -o "dist/veil-linux-$arch" ./cmd/veil
           done
-          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${NFPM_VERSION}"
           packaging/build-packages.sh 0.0.0-ci "$PWD/dist"
 
       - name: Install the deb and look at the rpm

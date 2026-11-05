@@ -102,12 +102,22 @@ jobs:
           gpg --batch --armor --export > dist/veil-packages.asc
           gpg --batch --list-keys --keyid-format long
 
+      - name: Install nfpm ${{ env.NFPM_VERSION }} (release binary, checksum checked)
+        run: |
+          v=${NFPM_VERSION#v}
+          base="https://github.com/goreleaser/nfpm/releases/download/${NFPM_VERSION}"
+          mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
+          curl -fsSLO "$base/nfpm_${v}_Linux_x86_64.tar.gz"
+          curl -fsSLO "$base/checksums.txt"
+          grep " nfpm_${v}_Linux_x86_64.tar.gz\$" checksums.txt | sha256sum -c -
+          tar xzf "nfpm_${v}_Linux_x86_64.tar.gz" nfpm
+          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+
       - name: Build signed deb and rpm packages
         env:
           VERSION: ${{ github.ref_name }}
           NFPM_PASSPHRASE: ${{ secrets.PACKAGES_GPG_PASSPHRASE }}
         run: |
-          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${NFPM_VERSION}"
           SIGNING_KEY="$RUNNER_TEMP/packages-key.asc" packaging/build-packages.sh "$VERSION" "$PWD/dist"
 
       - name: Detached GPG signatures of the packages
