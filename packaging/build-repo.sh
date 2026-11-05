@@ -14,7 +14,8 @@
 #   SITE/deb/                       a flat apt repository: Packages, Release, InRelease, Release.gpg
 #   SITE/rpm/{x86_64,aarch64}/      dnf/yum repositories, repodata/repomd.xml signed (.asc)
 #   SITE/rpm/veil.repo              the .repo file for /etc/yum.repos.d
-#   SITE/index.html                 how to use it
+#   SITE/index.html                 how to use it, with a link to the legal notice
+#   SITE/{legal,imprint,privacy}/   redirects to https://veilplane.com/legal
 #
 # Needs apt-ftparchive (apt-utils), createrepo_c and gpg.
 set -euo pipefail
@@ -97,6 +98,7 @@ cat > "$site/index.html" <<EOF
 <style>
   :root { color-scheme: light dark; }
   body { font: 16px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+  footer { margin-top: 3rem; font-size: .875rem; }
   pre { overflow-x: auto; padding: .75rem 1rem; border: 1px solid #8884; border-radius: 6px; }
 </style>
 </head>
@@ -114,9 +116,27 @@ sudo apt update &amp;&amp; sudo apt install veil</pre>
 sudo dnf install veil</pre>
 <p>Then put the agent's configuration in <code>/etc/veil/agent.json</code> and run
 <code>sudo systemctl enable --now veil</code>.</p>
+<footer><a href="https://veilplane.com/legal">Legal notice and privacy</a></footer>
 </body>
 </html>
 EOF
+
+# /legal and /imprint lead to the legal notice and privacy policy of veilplane.com.
+for page in legal imprint privacy; do
+	mkdir -p "$site/$page"
+	cat > "$site/$page/index.html" <<'EOF'
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Legal notice and privacy</title>
+<meta http-equiv="refresh" content="0; url=https://veilplane.com/legal">
+<link rel="canonical" href="https://veilplane.com/legal">
+</head>
+<body><p><a href="https://veilplane.com/legal">veilplane.com/legal</a></p></body>
+</html>
+EOF
+done
 
 echo "repository in $site:"
 (cd "$site" && find . -type f ! -name '*.deb' ! -name '*.rpm' | sort)
