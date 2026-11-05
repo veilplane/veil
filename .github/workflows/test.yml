@@ -186,7 +186,7 @@ jobs:
                   modules = [ flake.nixosModules.default {
                     services.veil = { enable = true; settings.join = "/run/secrets/veil.invite"; };
                     boot.loader.grub.enable = false;
-                    fileSystems."/".device = "nodev";
+                    fileSystems."/" = { device = "/dev/disk/by-label/nixos"; fsType = "ext4"; };
                     system.stateVersion = "25.05";
                   } ];
                 };
