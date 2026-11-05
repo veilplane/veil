@@ -1,0 +1,193 @@
+# SPDX-License-Identifier: FSL-1.1-ALv2
+# Copyright 2026 Julian Siebert. See LICENSE.md.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: # used by the release workflow before anything is published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ETCD_VERSION: v3.5.21
+  NFPM_VERSION: v2.47.0
+  NIX_VERSION: 2.35.4
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify module checksums
+        run: go mod verify
+
+      - name: Check that go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Not gofmt-formatted: $unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Check license headers
+        run: |
+          for f in $(git ls-files '*.go' '*.yml' '*.yaml' '*.nix' '*.sh' packaging/veil.service); do
+            grep -q 'SPDX-License-Identifier: FSL-1.1-ALv2' "$f" || { echo "::error file=$f::Missing license header"; exit 1; }
+          done
+
+  unit-tests:
+    name: Unit and attack tests (etcd)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Download etcd ${{ env.ETCD_VERSION }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/etcd.tgz" \
+            "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz"
+          tar xzf "$RUNNER_TEMP/etcd.tgz" -C "$RUNNER_TEMP"
+          echo "E2E_ETCD_DIR=$RUNNER_TEMP/etcd-${ETCD_VERSION}-linux-amd64" >> "$GITHUB_ENV"
+
+      - name: Run tests with race detector
+        run: go test -race -count=1 ./...
+
+      - name: Build (amd64, arm64)
+        run: |
+          CGO_ENABLED=0 GOARCH=amd64 go build -o /dev/null ./cmd/veil
+          CGO_ENABLED=0 GOARCH=arm64 go build -o /dev/null ./cmd/veil
+
+  fuzzing:
+    name: Fuzzing (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - FuzzDecKey
+          - FuzzOpenRecord
+          - FuzzParseReceipt
+          - FuzzParseRange
+          - FuzzParseCheckpoint
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Fuzz for 60 seconds
+        env:
+          TARGET: ${{ matrix.target }}
+        run: go test -run '^$' -fuzz "^${TARGET}\$" -fuzztime 60s ./proxy
+
+      - name: Upload failing input
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failure-${{ matrix.target }}
+          path: proxy/testdata/fuzz/
+          if-no-files-found: ignore
+
+  packages:
+    name: deb and rpm packages (unsigned)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries and packages
+        run: |
+          mkdir dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOARCH=$arch go build -trimpath -o "dist/veil-linux-$arch" ./cmd/veil
+          done
+          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${NFPM_VERSION}"
+          packaging/build-packages.sh 0.0.0-ci "$PWD/dist"
+
+      - name: Install the deb and look at the rpm
+        run: |
+          sudo apt-get install -y ./dist/veil_*_amd64.deb
+          veil version
+          systemctl cat veil.service
+          sudo apt-get remove -y veil
+          sudo apt-get install -y rpm
+          rpm -qip dist/veil-*.x86_64.rpm
+          rpm -qlp dist/veil-*.x86_64.rpm
+
+  nix:
+    name: Nix flake
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix ${{ env.NIX_VERSION }}
+        run: |
+          sh <(curl -fsSL "https://nixos.org/releases/nix/nix-${NIX_VERSION}/install") --no-daemon
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+
+      - name: Build the package (a wrong vendorHash fails here and names the right one)
+        run: |
+          nix --extra-experimental-features 'nix-command flakes' build .#veil --print-build-logs
+          ./result/bin/veil version
+
+      - name: Evaluate the NixOS module
+        run: |
+          nix --extra-experimental-features 'nix-command flakes' eval --impure --raw --expr '
+            let flake = builtins.getFlake (toString ./.);
+                nixpkgs = flake.inputs.nixpkgs;
+                system = nixpkgs.lib.nixosSystem {
+                  system = "x86_64-linux";
+                  modules = [ flake.nixosModules.default {
+                    services.veil = { enable = true; settings.join = "/run/secrets/veil.invite"; };
+                    boot.loader.grub.enable = false;
+                    fileSystems."/".device = "nodev";
+                    system.stateVersion = "25.05";
+                  } ];
+                };
+            in system.config.systemd.units."veil.service".text'

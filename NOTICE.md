@@ -1,0 +1,37 @@
+# Third-party software
+
+veil is licensed under FSL-1.1-ALv2 (see LICENSE.md). Binaries of veil contain the following
+third-party software, which keeps its own license. When distributing binaries, ship this file
+together with the license texts of these modules (e.g. collected with `go-licenses save`).
+
+| Module | License |
+|---|---|
+| github.com/tink-crypto/tink-go/v2 | Apache-2.0 |
+| go.etcd.io/etcd/api/v3 | Apache-2.0 |
+| golang.zx2c4.com/wireguard (wireguard-go) | MIT |
+| golang.zx2c4.com/wireguard/wgctrl | MIT |
+| github.com/mdlayher/netlink, github.com/mdlayher/genetlink, github.com/mdlayher/socket | MIT |
+| github.com/josharian/native | MIT |
+| google.golang.org/grpc | Apache-2.0 |
+| google.golang.org/genproto | Apache-2.0 |
+| google.golang.org/protobuf, github.com/golang/protobuf, github.com/gogo/protobuf | BSD-3-Clause |
+| golang.org/x/crypto, golang.org/x/net, golang.org/x/sys, golang.org/x/sync, golang.org/x/text | BSD-3-Clause |
+
+"WireGuard" is a registered trademark of Jason A. Donenfeld. veil uses the WireGuard protocol
+and wireguard-go; it is not affiliated with or endorsed by the WireGuard project.
+
+## gRPC NOTICE
+
+Copyright 2014 gRPC authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

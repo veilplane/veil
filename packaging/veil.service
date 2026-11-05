@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: FSL-1.1-ALv2
+# Copyright 2026 Julian Siebert. See LICENSE.md.
+#
+# The veil agent, as installed by the deb and rpm packages. It reads /etc/veil/agent.json (and
+# notices changes by itself) and keeps everything else in /var/lib/veil.
+
+[Unit]
+Description=veil (Veilplane agent: end-to-end encrypted etcd, WireGuard mesh)
+Documentation=https://github.com/veilplane/veil
+After=network-online.target
+Wants=network-online.target
+Before=k3s.service kubelet.service
+
+[Service]
+Environment=VEIL_CONFIG=/etc/veil
+Environment=VEIL_STATE=/var/lib/veil
+# root: the mesh creates a network interface and configures WireGuard
+ExecStart=/usr/bin/veil agent
+Restart=always
+RestartSec=2
+StateDirectory=veil
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

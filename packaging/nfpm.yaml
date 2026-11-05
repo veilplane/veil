@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: FSL-1.1-ALv2
+# Copyright 2026 Julian Siebert. See LICENSE.md.
+#
+# deb and rpm packages of veil, built with nfpm (https://nfpm.goreleaser.com).
+# packaging/build-packages.sh fills in the variables:
+#   ARCH          amd64 or arm64
+#   VERSION       the tag without "v", e.g. 1.2.3 or 1.3.0-rc.1
+#   BINARY        path of the static binary for ARCH
+#   SIGNING_KEY   armored GPG private key file; empty: unsigned (test builds)
+# The key's passphrase comes from NFPM_PASSPHRASE.
+
+name: veil
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+release: 1
+section: net
+priority: optional
+maintainer: Julian Siebert <packages@veilplane.com>
+vendor: Veilplane
+homepage: https://veilplane.com
+license: FSL-1.1-ALv2
+description: |
+  The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+  WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+  "systemctl enable --now veil".
+
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/veil
+    file_info:
+      mode: 0755
+  - src: packaging/veil.service
+    dst: /usr/lib/systemd/system/veil.service
+    file_info:
+      mode: 0644
+  - dst: /etc/veil
+    type: dir
+    file_info:
+      mode: 0755
+  - src: LICENSE.md
+    dst: /usr/share/doc/veil/LICENSE.md
+  - src: NOTICE.md
+    dst: /usr/share/doc/veil/NOTICE.md
+  - src: README.md
+    dst: /usr/share/doc/veil/README.md
+
+scripts:
+  postinstall: packaging/postinstall.sh
+  preremove: packaging/preremove.sh
+
+overrides:
+  deb:
+    depends:
+      - iproute2
+  rpm:
+    depends:
+      - iproute
+
+deb:
+  signature:
+    key_file: ${SIGNING_KEY}
+    type: origin
+rpm:
+  signature:
+    key_file: ${SIGNING_KEY}
