@@ -184,8 +184,11 @@ jobs:
           mkdir -m 700 "$GNUPGHOME"
           gpg --batch --pinentry-mode loopback --passphrase '' --quick-gen-key "veil CI <ci@invalid>" ed25519 sign 1d
           mkdir pool && cp dist/*.deb dist/*.rpm pool/
-          packaging/build-repo.sh pool site "file://$PWD/site"
-          echo "deb [signed-by=$PWD/site/veil-packages.asc] file://$PWD/site/deb ./" | sudo tee /etc/apt/sources.list.d/veil.list
+          # apt reads repository and key as the user _apt, which may not look into /home/runner
+          repo=/srv/veil-repo
+          packaging/build-repo.sh pool site "file://$repo"
+          sudo cp -r site "$repo" && sudo chmod -R a+rX "$repo"
+          echo "deb [signed-by=$repo/veil-packages.asc] file://$repo/deb ./" | sudo tee /etc/apt/sources.list.d/veil.list
           sudo apt-get update -q
           sudo apt-get install -y veil
           veil version
