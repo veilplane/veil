@@ -2,7 +2,7 @@ module github.com/veilplane/veil
 
 go 1.26.4
 
-toolchain go1.26.4
+toolchain go1.27.3
 
 require (
 	github.com/tink-crypto/tink-go/v2 v2.7.0
