@@ -122,6 +122,11 @@ sudo apt update &amp;&amp; sudo apt install veil</pre>
 sudo dnf install veil</pre>
 <p>Then put the agent's configuration in <code>/etc/veil/agent.json</code> and run
 <code>sudo systemctl enable --now veil</code>.</p>
+<h2>veilctl</h2>
+<p>Veilplane from the terminal (organizations, clusters, nodes, API tokens), from the same
+repository: <code>sudo apt install veilctl</code> or <code>sudo dnf install veilctl</code>, then
+<code>veilctl login</code>. For macOS and Windows: the binaries of the
+<a href="https://github.com/veilplane/veil/releases/latest">latest release</a>.</p>
 <footer><a href="https://veilplane.com/legal">Legal notice and privacy</a></footer>
 </body>
 </html>

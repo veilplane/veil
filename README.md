@@ -13,8 +13,12 @@ Which of these run on a node is decided by the backend (per cluster, in the dash
 limited by the node: its `agent.json` says what the backend may switch on. The agent is
 configured only declaratively, with files, and reports what it actually runs in a status file.
 
+**veilctl** (section 10) is the command line for Veilplane itself: organizations, members,
+clusters, join codes, nodes, API tokens and the audit log, from the terminal, on Linux, macOS
+and Windows.
+
 This repository is the public, source-available part of Veilplane: everything that runs on a
-customer's machines. License: FSL-1.1-ALv2 (section 14).
+customer's machines. License: FSL-1.1-ALv2 (section 15).
 
 ## Contents
 
@@ -27,11 +31,12 @@ customer's machines. License: FSL-1.1-ALv2 (section 14).
 7. [What the backend can and cannot do](#7-what-the-backend-can-and-cannot-do)
 8. [Files](#8-files)
 9. [Commands](#9-commands)
-10. [Repository layout](#10-repository-layout)
-11. [Building and testing](#11-building-and-testing)
-12. [Continuous integration and releases](#12-continuous-integration-and-releases)
-13. [Known limitations](#13-known-limitations)
-14. [License](#14-license)
+10. [veilctl: Veilplane from the terminal](#10-veilctl-veilplane-from-the-terminal)
+11. [Repository layout](#11-repository-layout)
+12. [Building and testing](#12-building-and-testing)
+13. [Continuous integration and releases](#13-continuous-integration-and-releases)
+14. [Known limitations](#14-known-limitations)
+15. [License](#15-license)
 
 ## 1. Overview
 
@@ -75,7 +80,7 @@ hole punching, status).
 
 ## 2. Installing and running
 
-Every release has deb and rpm packages for amd64 and arm64 (section 12): they install the
+Every release has deb and rpm packages for amd64 and arm64 (section 13): they install the
 binary as `/usr/bin/veil`, the systemd unit and `/etc/veil`, and depend on iproute2. The
 package repository keeps them up to date with the system's other packages. In one step, it
 adds the repository, installs veil and joins the node (`packaging/install.sh`, served by the
@@ -338,24 +343,91 @@ are less protected than the node.
 
 Every command takes `-config` and `-state` (or `VEIL_CONFIG`, `VEIL_STATE`).
 
-## 10. Repository layout
+## 10. veilctl: Veilplane from the terminal
+
+`veilctl` does what the dashboard does, through the management API: organizations, members and
+invitations, clusters (create, delete and restore, features, join codes, nodes, the mesh), API
+tokens, the audit log, your account and sessions, and trial clusters. It is one static binary
+without dependencies for Linux, macOS and Windows (amd64, arm64).
+
+**Installing.** Linux: the package `veilctl` from the same repository as veil (section 2):
+`apt install veilctl` or `dnf install veilctl`, with shell completions. macOS, Windows: the
+binary from the release (`veilctl-darwin-arm64`, `veilctl-windows-amd64.exe`, ...), or Nix:
+`nix run github:veilplane/veil#veilctl`.
+
+```sh
+veilctl login                                  # sign in with an e-mail link
+veilctl orgs create "Acme Inc." --slug acme
+veilctl clusters create web --region eu
+veilctl join-code web                          # the code, and the command for the first node
+veilctl clusters devices web --watch           # the nodes and what their agents run
+veilctl clusters features web --mesh on
+veilctl tokens create ci --expires 90d         # for scripts: VEILCTL_TOKEN=... veilctl ...
+veilctl trial                                  # a cluster for 30 minutes, no account
+```
+
+How it behaves:
+
+- **Commands** are *noun verb* (`clusters create`), flags may come anywhere, every command has
+  `--help` with examples; a typo gets a "did you mean". A group alone runs its list
+  (`veilctl clusters`). Clusters are named by id or name; ids shown shortened (sessions,
+  tokens) work shortened.
+- **Signing in**: `veilctl login` sends a sign-in link; copy it from the mail without opening it
+  and paste it (opening it uses it up and signs in the browser instead). The session is kept in
+  the configuration file (`<config dir>/veilctl/config.json`, mode 0600, or `VEILCTL_CONFIG`).
+  For scripts and CI, an API token of one organization: `VEILCTL_TOKEN` and `--org` (or
+  `veilctl login --token ... --org ...`).
+- **Organization**: with one, it is used by itself; with several, `veilctl orgs use ORG` or
+  `--org` (`VEILCTL_ORG`).
+- **Contexts**: several APIs or sign-ins side by side (`veilctl login --context staging --api
+  URL`, `veilctl context use staging`, `--context`).
+- **Output**: tables for people, colors only on a terminal (not with `NO_COLOR` or
+  `--no-color`); `--json` prints the API's answer as it is, for scripts. Data goes to stdout,
+  messages to stderr: `CODE=$(veilctl join-code web)` gets only the code.
+- **Safety**: deleting and revoking ask for the name of what goes; without a terminal they need
+  `--yes`.
+- **Completion**: `veilctl completion bash|zsh|fish` (installed by the package); it completes
+  commands, flags and also clusters, nodes, organizations, members and tokens, asking the API.
+
+| Command | |
+|---|---|
+| `login`, `logout`, `whoami` | sign in (e-mail link or API token), out, and who you are |
+| `trial [start\|status\|end]` | a trial cluster without an account |
+| `clusters [list\|create\|show\|rename\|delete\|restore]` | clusters |
+| `clusters features CLUSTER --proxy on\|off --mesh on\|off` | what the agents run |
+| `join-code CLUSTER [--node NAME]` | a join code for the first node |
+| `clusters devices CLUSTER [NODE] [--watch]` | the nodes, their agents' reports |
+| `clusters revoke CLUSTER NODE`, `clusters mesh CLUSTER` | revoke a node; who reaches whom |
+| `orgs [list\|use\|create\|show\|update\|delete]` | organizations |
+| `members [list\|invite\|invitations\|withdraw\|promote\|demote\|remove\|leave]` | members |
+| `invitations [list\|show\|accept\|decline]` | invitations for you |
+| `tokens [list\|create\|delete]`, `audit [--all]` | API tokens, the audit log |
+| `me`, `sessions`, `passkeys`, `context` | your account, where you are signed in, contexts |
+| `regions`, `completion SHELL`, `version` | |
+
+The management API's OpenAPI description is at `https://api.veilplane.com/v1/spec.yml`.
+Passkeys can be listed and deleted here; creating one needs a browser (the dashboard).
+
+## 11. Repository layout
 
 | Path | Content |
 |---|---|
 | `cmd/veil/` | the command |
+| `cmd/veilctl/`, `ctl/` | veilctl: `cli.go` (commands, flags, help, completion), `api.go` (the API client, configuration, the API's types), `commands.go` (every command), `output.go` (tables, colors, questions) |
 | `agent/` | the agent: `agent.go` (loop, features, status), `api.go` (agent API, tokens, gRPC connection), `files.go` (agent.json, keys, invite files), `tools.go` (invite, leave, status) |
 | `proxy/` | the etcd proxy, with its own README |
 | `mesh/` | the mesh, with its own README |
-| `packaging/` | the systemd unit; deb and rpm: nfpm configuration, install and removal scripts, `build-packages.sh`; `build-repo.sh` for the apt and dnf repository |
+| `packaging/` | the systemd unit; deb and rpm of veil and veilctl: nfpm configurations, install and removal scripts, `build-packages.sh`; `build-repo.sh` for the apt and dnf repository; `install.sh`, served by it |
 | `flake.nix`, `nix/` | the Nix package and the NixOS module; `nix/update-vendor-hash.sh` after a change to the Go dependencies |
 
-## 11. Building and testing
+## 12. Building and testing
 
-Go 1.24 or newer, Linux.
+Go 1.24 or newer, Linux (veilctl also builds and runs on macOS and Windows).
 
 ```sh
 go mod tidy                                                   # fills go.sum
 go build -o veil ./cmd/veil
+go build -o veilctl ./cmd/veilctl
 go test ./...                                                 # unit tests
 E2E_ETCD_DIR=/path/to/etcd-release go test -race ./...        # + the proxy's attack tests against a real etcd
 ```
@@ -364,16 +436,18 @@ E2E_ETCD_DIR=/path/to/etcd-release go test -race ./...        # + the proxy's at
 a worker invite (and that a used invite gives nothing), the allowlist (also changed while
 running), the backend switching a feature off within the long poll, revocation and joining
 again with a new code, the status report, one agent per state directory, unknown fields in
-`agent.json`.
+`agent.json`. veilctl's tests (`ctl/`) run it against a fake management API: signing in (the
+session kept 0600), tables and JSON, clusters by name and typos, features, join codes on stdout,
+confirmation before deleting, API tokens, usage errors, help, completion.
 
 Releases are also tested end to end together with the backend (k3s on the etcd proxy, the mesh
 behind real NAT); those tests are not part of this repository.
 
-## 12. Continuous integration and releases
+## 13. Continuous integration and releases
 
 `.github/workflows/test.yml`: module verification, tidy check, formatting, vet, license
 headers, unit and attack tests with the race detector (against etcd), builds for amd64 and
-arm64, 60 seconds of fuzzing per target of the proxy, the deb and rpm packages (unsigned; the
+arm64 (veilctl also for macOS and Windows), 60 seconds of fuzzing per target of the proxy, the deb and rpm packages (unsigned; the
 deb is installed and removed again), and the Nix flake (the package builds, the NixOS module
 evaluates).
 
@@ -383,9 +457,10 @@ pre-release). The release workflow runs the tests and publishes:
 | File | |
 |---|---|
 | `veil-linux-amd64`, `veil-linux-arm64` | static binaries |
+| `veilctl-linux-*`, `veilctl-darwin-*`, `veilctl-windows-*.exe` | veilctl for Linux, macOS and Windows (amd64, arm64) |
 | `veil.service` | the systemd unit, for an installation without a package |
-| `veil_<version>-1_amd64.deb`, `veil_<version>-1_arm64.deb` | signed with the package key (origin signature) |
-| `veil-<version>-1.x86_64.rpm`, `veil-<version>-1.aarch64.rpm` | signed with the package key (rpm header signature) |
+| `veil_<version>-1_amd64.deb`, `veil_<version>-1_arm64.deb`, the same for `veilctl` | signed with the package key (origin signature) |
+| `veil-<version>-1.x86_64.rpm`, `veil-<version>-1.aarch64.rpm`, the same for `veilctl` | signed with the package key (rpm header signature) |
 | `*.deb.asc`, `*.rpm.asc` | detached signatures with the package key |
 | `veil-packages.asc` | the package key's public half |
 | `checksums.txt` | SHA-256 of all of the above |
@@ -422,7 +497,7 @@ by hand, for instance after deleting a release.
 (`vendorHash`). After a change to `go.mod` or `go.sum`, run `nix/update-vendor-hash.sh`; until
 then the Nix job in CI fails and names the right hash.
 
-## 13. Known limitations
+## 14. Known limitations
 
 - **veilctl** does not know the agent yet: it will write `agent.json` and read `veil.lock`.
   Until then, the files are edited by hand.
@@ -432,7 +507,7 @@ then the Nix job in CI fails and names the right hash.
 - The proxy's and the mesh's own limitations: proxy/README.md, section 14; mesh/README.md,
   section 12.
 
-## 14. License
+## 15. License
 
 veil is licensed under the Functional Source License, Version 1.1, with Apache 2.0 as future
 license (FSL-1.1-ALv2), see `LICENSE.md`. In short: use, modification and internal production

@@ -24,7 +24,7 @@ env:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,7 +61,7 @@ jobs:
 
   unit-tests:
     name: Unit and attack tests (etcd)
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,7 +75,7 @@ jobs:
 
       - name: Cache etcd ${{ env.ETCD_VERSION }}
         id: etcd-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/etcd-${{ env.ETCD_VERSION }}-linux-amd64
           key: etcd-${{ env.ETCD_VERSION }}-linux-amd64
@@ -93,14 +93,18 @@ jobs:
       - name: Run tests with race detector
         run: go test -race -count=1 ./...
 
-      - name: Build (amd64, arm64)
+      - name: Build (veil for Linux, veilctl for Linux, macOS and Windows; amd64, arm64)
         run: |
-          CGO_ENABLED=0 GOARCH=amd64 go build -o /dev/null ./cmd/veil
-          CGO_ENABLED=0 GOARCH=arm64 go build -o /dev/null ./cmd/veil
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOARCH=$arch go build -o /dev/null ./cmd/veil
+            for os in linux darwin windows; do
+              CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -o /dev/null ./cmd/veilctl
+            done
+          done
 
   fuzzing:
     name: Fuzzing (${{ matrix.target }})
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -136,7 +140,7 @@ jobs:
 
   packages:
     name: deb and rpm packages (unsigned)
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -164,18 +168,23 @@ jobs:
           mkdir dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOARCH=$arch go build -trimpath -o "dist/veil-linux-$arch" ./cmd/veil
+            CGO_ENABLED=0 GOARCH=$arch go build -trimpath -o "dist/veilctl-linux-$arch" ./cmd/veilctl
           done
           packaging/build-packages.sh 0.0.0-ci "$PWD/dist"
 
       - name: Install the deb and look at the rpm
         run: |
-          sudo apt-get install -y ./dist/veil_*_amd64.deb
+          sudo apt-get install -y ./dist/veil_*_amd64.deb ./dist/veilctl_*_amd64.deb
           veil version
+          veilctl version
           systemctl cat veil.service
-          sudo apt-get remove -y veil
+          bash -c 'source /usr/share/bash-completion/completions/veilctl; COMP_WORDS=(veilctl clusters fe); COMP_CWORD=2; _veilctl; [ "${COMPREPLY[*]}" = features ]'
+          sudo apt-get remove -y veil veilctl
           sudo apt-get install -y rpm
-          rpm -qip dist/veil-*.x86_64.rpm
-          rpm -qlp dist/veil-*.x86_64.rpm
+          for p in veil veilctl; do
+            rpm -qip dist/$p-*.x86_64.rpm
+            rpm -qlp dist/$p-*.x86_64.rpm
+          done
 
       - name: Package repository (throwaway key), installed from with apt
         run: |
@@ -190,12 +199,13 @@ jobs:
           sudo cp -r site "$repo" && sudo chmod -R a+rX "$repo"
           echo "deb [signed-by=$repo/veil-packages.asc] file://$repo/deb ./" | sudo tee /etc/apt/sources.list.d/veil.list
           sudo apt-get update -q
-          sudo apt-get install -y veil
+          sudo apt-get install -y veil veilctl
           veil version
+          veilctl version
 
   nix:
     name: Nix flake
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -211,6 +221,9 @@ jobs:
         run: |
           nix --extra-experimental-features 'nix-command flakes' build .#veil --print-build-logs
           ./result/bin/veil version
+          nix --extra-experimental-features 'nix-command flakes' build .#veilctl --print-build-logs
+          ./result/bin/veilctl version
+          test -f ./result/share/bash-completion/completions/veilctl.bash
 
       - name: Evaluate the NixOS module
         run: |
