@@ -867,3 +867,50 @@ func TestCanonicalCiphertextKeys(t *testing.T) {
 		}
 	}
 }
+
+// A watch stream that never says anything (stuck somewhere on the way to the backend): the
+// replica gives it up after watchSilence instead of waiting for it forever, and follow opens a
+// new one.
+func TestSilentWatchIsReplaced(t *testing.T) {
+	old := watchSilence
+	watchSilence = 200 * time.Millisecond
+	t.Cleanup(func() { watchSilence = old })
+	w := &silentWatch{}
+	r := newReplica(testSealer(t, 1), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := r.followOnce(ctx, &proxy{watch: w})
+	if err == nil || !strings.Contains(err.Error(), "no word from the backend") {
+		t.Fatalf("followOnce: %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("gave up only after %v", d)
+	}
+	if w.opened.Load() != 1 || w.creates.Load() != 1 {
+		t.Fatalf("%d streams, %d create requests", w.opened.Load(), w.creates.Load())
+	}
+}
+
+type silentWatch struct{ opened, creates atomic.Int32 }
+
+func (w *silentWatch) Watch(ctx context.Context, _ ...grpc.CallOption) (pb.Watch_WatchClient, error) {
+	w.opened.Add(1)
+	return &silentStream{ctx: ctx, w: w}, nil
+}
+
+type silentStream struct {
+	grpc.ClientStream
+	ctx context.Context
+	w   *silentWatch
+}
+
+func (s *silentStream) Send(*pb.WatchRequest) error {
+	s.w.creates.Add(1)
+	return nil
+}
+
+func (s *silentStream) Recv() (*pb.WatchResponse, error) {
+	<-s.ctx.Done()
+	return nil, s.ctx.Err()
+}

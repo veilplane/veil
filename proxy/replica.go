@@ -386,9 +386,22 @@ func (r *replica) follow(ctx context.Context, p *proxy) {
 	}
 }
 
+// watchSilence is how long the backend's watch stream may stay silent before the replica gives
+// it up and opens a new one. The backend sends a progress notification every few seconds even
+// when nothing changes, so silence means the stream is stuck somewhere on the way (a proxy that
+// lost its upstream without telling, a stream that reached an instance without its request);
+// gRPC's keepalive only checks the connection to the next hop, not the stream behind it.
+var watchSilence = 30 * time.Second
+
 func (r *replica) followOnce(ctx context.Context, p *proxy) error {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	var silent atomic.Bool
+	watchdog := time.AfterFunc(watchSilence, func() {
+		silent.Store(true)
+		cancel()
+	})
+	defer watchdog.Stop()
 	st, err := p.watch.Watch(sctx)
 	if err != nil {
 		return err
@@ -400,8 +413,12 @@ func (r *replica) followOnce(ctx context.Context, p *proxy) error {
 	for {
 		resp, err := st.Recv()
 		if err != nil {
+			if silent.Load() && ctx.Err() == nil {
+				return fmt.Errorf("no word from the backend for %v", watchSilence)
+			}
 			return err
 		}
+		watchdog.Reset(watchSilence)
 		if resp.CompactRevision != 0 {
 			r.fail(dataLoss("the backend compacted its history (revision %d) before this instance could verify it", resp.CompactRevision))
 			return nil
