@@ -315,6 +315,9 @@ type agentStatus struct {
 		Error    string `json:"error"`
 		Listen   string `json:"listen"`
 		Revision int64  `json:"revision"`
+		Mesh     *struct {
+			Warnings []string `json:"warnings"`
+		} `json:"mesh"`
 	} `json:"features"`
 }
 
