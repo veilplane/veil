@@ -869,12 +869,12 @@ func TestCanonicalCiphertextKeys(t *testing.T) {
 }
 
 // A watch stream that never says anything (stuck somewhere on the way to the backend): the
-// replica gives it up after watchSilence instead of waiting for it forever, and follow opens a
-// new one.
+// replica asks it for progress after watchProbe, gives it up after watchSilence instead of
+// waiting for it forever, and follow opens a new one.
 func TestSilentWatchIsReplaced(t *testing.T) {
-	old := watchSilence
-	watchSilence = 200 * time.Millisecond
-	t.Cleanup(func() { watchSilence = old })
+	oldSilence, oldProbe := watchSilence, watchProbe
+	watchSilence, watchProbe = 200*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { watchSilence, watchProbe = oldSilence, oldProbe })
 	w := &silentWatch{}
 	r := newReplica(testSealer(t, 1), time.Minute)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -887,30 +887,86 @@ func TestSilentWatchIsReplaced(t *testing.T) {
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("gave up only after %v", d)
 	}
-	if w.opened.Load() != 1 || w.creates.Load() != 1 {
-		t.Fatalf("%d streams, %d create requests", w.opened.Load(), w.creates.Load())
+	if w.opened.Load() != 1 || w.creates.Load() != 1 || w.probes.Load() == 0 {
+		t.Fatalf("%d streams, %d create requests, %d progress requests", w.opened.Load(), w.creates.Load(), w.probes.Load())
 	}
 }
 
-type silentWatch struct{ opened, creates atomic.Int32 }
+// A quiet stream that answers when asked stays: the progress requests keep it, not the watchdog.
+func TestQuietWatchThatAnswersStays(t *testing.T) {
+	oldSilence, oldProbe := watchSilence, watchProbe
+	watchSilence, watchProbe = 300*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { watchSilence, watchProbe = oldSilence, oldProbe })
+	w := &silentWatch{answer: true}
+	r := newReplica(testSealer(t, 1), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := r.followOnce(ctx, &proxy{watch: w})
+	if ctx.Err() == nil || (err != nil && strings.Contains(err.Error(), "no word from the backend")) {
+		t.Fatalf("followOnce ended before its context: %v", err)
+	}
+	if w.probes.Load() < 5 {
+		t.Fatalf("only %d progress requests in a second", w.probes.Load())
+	}
+}
+
+// A stream whose far end is gone fails at the first progress request, long before watchSilence.
+func TestDeadWatchFailsAtTheFirstProbe(t *testing.T) {
+	oldSilence, oldProbe := watchSilence, watchProbe
+	watchSilence, watchProbe = 10*time.Second, 50*time.Millisecond
+	t.Cleanup(func() { watchSilence, watchProbe = oldSilence, oldProbe })
+	w := &silentWatch{dead: true}
+	r := newReplica(testSealer(t, 1), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := r.followOnce(ctx, &proxy{watch: w}); err == nil || ctx.Err() != nil {
+		t.Fatalf("followOnce: %v (context: %v)", err, ctx.Err())
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("noticed only after %v", d)
+	}
+}
+
+// silentWatch: streams that never send anything by themselves. answer: progress requests get a
+// progress answer. dead: progress requests fail, as on a stream whose far end is gone.
+type silentWatch struct {
+	answer, dead            bool
+	opened, creates, probes atomic.Int32
+}
 
 func (w *silentWatch) Watch(ctx context.Context, _ ...grpc.CallOption) (pb.Watch_WatchClient, error) {
 	w.opened.Add(1)
-	return &silentStream{ctx: ctx, w: w}, nil
+	return &silentStream{ctx: ctx, w: w, answers: make(chan struct{}, 16)}, nil
 }
 
 type silentStream struct {
 	grpc.ClientStream
-	ctx context.Context
-	w   *silentWatch
+	ctx     context.Context
+	w       *silentWatch
+	answers chan struct{}
 }
 
-func (s *silentStream) Send(*pb.WatchRequest) error {
-	s.w.creates.Add(1)
+func (s *silentStream) Send(r *pb.WatchRequest) error {
+	if r.GetCreateRequest() != nil {
+		s.w.creates.Add(1)
+		return nil
+	}
+	s.w.probes.Add(1)
+	if s.w.dead {
+		return io.EOF
+	}
+	if s.w.answer {
+		s.answers <- struct{}{}
+	}
 	return nil
 }
 
 func (s *silentStream) Recv() (*pb.WatchResponse, error) {
-	<-s.ctx.Done()
-	return nil, s.ctx.Err()
+	select {
+	case <-s.ctx.Done():
+		return nil, s.ctx.Err()
+	case <-s.answers:
+		return &pb.WatchResponse{WatchId: -1}, nil
+	}
 }

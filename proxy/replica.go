@@ -391,13 +391,21 @@ func (r *replica) follow(ctx context.Context, p *proxy) {
 // when nothing changes, so silence means the stream is stuck somewhere on the way (a proxy that
 // lost its upstream without telling, a stream that reached an instance without its request);
 // gRPC's keepalive only checks the connection to the next hop, not the stream behind it.
-var watchSilence = 30 * time.Second
+//
+// After watchProbe of silence the replica asks for progress itself (etcd's progress request,
+// answered by the backend at once): writing into a stream whose far end is gone makes whatever
+// sits in between notice and fail it, usually long before watchSilence.
+var (
+	watchSilence = 15 * time.Second
+	watchProbe   = 5 * time.Second
+)
 
 func (r *replica) followOnce(ctx context.Context, p *proxy) error {
+	silence, probe := watchSilence, watchProbe
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var silent atomic.Bool
-	watchdog := time.AfterFunc(watchSilence, func() {
+	watchdog := time.AfterFunc(silence, func() {
 		silent.Store(true)
 		cancel()
 	})
@@ -410,15 +418,41 @@ func (r *replica) followOnce(ctx context.Context, p *proxy) error {
 	if err := st.Send(&pb.WatchRequest{RequestUnion: &pb.WatchRequest_CreateRequest{CreateRequest: create}}); err != nil {
 		return err
 	}
+	// from here on only this goroutine sends (gRPC allows one sender beside the one receiver)
+	var heard atomic.Int64 // when the stream last said anything, or was last asked
+	heard.Store(time.Now().UnixNano())
+	probing := make(chan struct{})
+	defer func() { cancel(); <-probing }()
+	go func() {
+		defer close(probing)
+		tick := time.NewTicker(probe / 5)
+		defer tick.Stop()
+		for {
+			select {
+			case <-sctx.Done():
+				return
+			case <-tick.C:
+			}
+			if time.Since(time.Unix(0, heard.Load())) < probe {
+				continue
+			}
+			heard.Store(time.Now().UnixNano())
+			if err := st.Send(&pb.WatchRequest{RequestUnion: &pb.WatchRequest_ProgressRequest{ProgressRequest: &pb.WatchProgressRequest{}}}); err != nil {
+				cancel() // Recv fails next; it reports the stream's own error
+				return
+			}
+		}
+	}()
 	for {
 		resp, err := st.Recv()
 		if err != nil {
 			if silent.Load() && ctx.Err() == nil {
-				return fmt.Errorf("no word from the backend for %v", watchSilence)
+				return fmt.Errorf("no word from the backend for %v", silence)
 			}
 			return err
 		}
-		watchdog.Reset(watchSilence)
+		heard.Store(time.Now().UnixNano())
+		watchdog.Reset(silence)
 		if resp.CompactRevision != 0 {
 			r.fail(dataLoss("the backend compacted its history (revision %d) before this instance could verify it", resp.CompactRevision))
 			return nil
