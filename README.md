@@ -77,8 +77,15 @@ hole punching, status).
 
 Every release has deb and rpm packages for amd64 and arm64 (section 12): they install the
 binary as `/usr/bin/veil`, the systemd unit and `/etc/veil`, and depend on iproute2. The
-package repository keeps them up to date with the system's other packages; its page shows the
-same commands with its address:
+package repository keeps them up to date with the system's other packages. In one step, it
+adds the repository, installs veil and joins the node (`packaging/install.sh`, served by the
+repository; `-- try` instead joins a trial cluster, no arguments only installs):
+
+```sh
+curl -fsSL https://packages.veilplane.com/install.sh | sudo sh -s -- join vp1.mzxw6ytboi3tcnzrgq2tmmzz
+```
+
+By hand, the repository's page shows the same commands with its address:
 
 ```sh
 # Debian, Ubuntu
@@ -407,7 +414,7 @@ The repository needs these secrets for a release:
 
 **Package repository.** After every stable release, `packages.yml` rebuilds the apt and dnf
 repository at `https://packages.veilplane.com` from the newest ten stable releases
-(`packaging/build-repo.sh`), signs its metadata with the package key and force-pushes it as a
+(`packaging/build-repo.sh`, with `install.sh` at its root), signs its metadata with the package key and force-pushes it as a
 single commit to the branch `gh-pages`, which GitHub Pages serves. The workflow can also be run
 by hand, for instance after deleting a release.
 

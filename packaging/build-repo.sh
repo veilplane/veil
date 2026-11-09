@@ -14,6 +14,7 @@
 #   SITE/deb/                       a flat apt repository: Packages, Release, InRelease, Release.gpg
 #   SITE/rpm/{x86_64,aarch64}/      dnf/yum repositories, repodata/repomd.xml signed (.asc)
 #   SITE/rpm/veil.repo              the .repo file for /etc/yum.repos.d
+#   SITE/install.sh                 installs veil from here and joins the node (packaging/install.sh)
 #   SITE/index.html                 how to use it, with a link to the legal notice
 #   SITE/{legal,imprint,privacy}/   redirects to https://veilplane.com/legal
 #
@@ -44,6 +45,7 @@ rm -rf "$site"
 mkdir -p "$site/deb" "$site/rpm"
 site=$(realpath "$site")
 touch "$site/.nojekyll" # serve every file as it is
+cp "$(dirname "$0")/install.sh" "$site/install.sh"
 gpg --batch --armor --export > "$site/veil-packages.asc"
 
 # apt: a flat repository ("deb URL ./"), one Packages file for both architectures.
@@ -106,6 +108,10 @@ cat > "$site/index.html" <<EOF
 <h1>veil packages</h1>
 <p>Packages and repository metadata are signed with <a href="veil-packages.asc">this key</a>.
 Source and releases: <a href="https://github.com/veilplane/veil">github.com/veilplane/veil</a>.</p>
+<h2>In one step</h2>
+<p>Adds the repository below (apt or dnf), installs veil and joins the node:</p>
+<pre>curl -fsSL $base/install.sh | sudo sh -s -- join &lt;join code&gt;</pre>
+<p>Or <code>-- try</code> for a trial cluster without an account, or no arguments to install only.</p>
 <h2>Debian, Ubuntu</h2>
 <pre>sudo install -d -m 0755 /etc/apt/keyrings
 sudo curl -fsSLo /etc/apt/keyrings/veil.asc $base/veil-packages.asc
