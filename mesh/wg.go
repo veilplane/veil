@@ -13,7 +13,9 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -145,3 +147,100 @@ func hostRoute(a netip.Addr) net.IPNet {
 }
 
 func keepalive(d time.Duration) *time.Duration { return &d }
+
+// ---------------------------------------------------------------- conflicts with the machine
+
+// tailnet is the range Tailscale takes its addresses from. On Linux it drops every packet from
+// this range that does not arrive through its own interface (a rule in its ts-input chain).
+var tailnet = netip.MustParsePrefix("100.64.0.0/10")
+
+// hostNet is one address or route of the machine, on an interface.
+type hostNet struct {
+	iface  string
+	prefix netip.Prefix
+	route  bool // a route, not an address of the interface
+}
+
+// conflicts tells what on this machine gets in the way of the mesh network: another interface
+// with an address in it or a route into it (traffic for some mesh addresses would go there), and
+// Tailscale, which would drop the other nodes' mesh packets.
+func conflicts(mesh netip.Prefix, own string, nets []hostNet) []string {
+	var out []string
+	seen := map[string]bool{}
+	tailscale := false
+	for _, n := range nets {
+		if strings.HasPrefix(n.iface, "tailscale") {
+			tailscale = true
+		}
+		if n.iface == own || !n.prefix.IsValid() || n.prefix.Bits() == 0 || !n.prefix.Addr().Is4() || !n.prefix.Overlaps(mesh) {
+			continue
+		}
+		if strings.HasPrefix(n.iface, "tailscale") && mesh.Overlaps(tailnet) {
+			continue // said below, with what to do
+		}
+		what := "an address"
+		if n.route {
+			what = "a route"
+		}
+		msg := fmt.Sprintf("the mesh network %s overlaps %s on %s (%s): traffic for some mesh addresses may go there instead",
+			mesh, n.prefix.Masked(), n.iface, what)
+		if !seen[msg] {
+			seen[msg] = true
+			out = append(out, msg)
+		}
+	}
+	if tailscale && mesh.Overlaps(tailnet) {
+		out = append(out, fmt.Sprintf("Tailscale runs here and drops packets from %s that do not come through it, and the mesh network "+
+			"%s lies in that range: the other nodes' mesh packets are dropped. The backend should hand out a mesh network outside "+
+			"%s; until then: iptables -I INPUT 1 -i %s -j ACCEPT", tailnet, mesh, tailnet, own))
+	}
+	return out
+}
+
+// hostNets reads the machine's interface addresses and its IPv4 routes (main table).
+func hostNets() []hostNet {
+	var out []hostNet
+	ifaces, _ := net.Interfaces()
+	for _, i := range ifaces {
+		addrs, _ := i.Addrs()
+		for _, a := range addrs {
+			if p, err := netip.ParsePrefix(a.String()); err == nil {
+				out = append(out, hostNet{iface: i.Name, prefix: p})
+			}
+		}
+		if len(addrs) == 0 && strings.HasPrefix(i.Name, "tailscale") {
+			out = append(out, hostNet{iface: i.Name})
+		}
+	}
+	if raw, err := os.ReadFile("/proc/net/route"); err == nil {
+		out = append(out, parseRoutes(string(raw))...)
+	}
+	return out
+}
+
+// parseRoutes reads /proc/net/route: Iface, Destination, Gateway, Flags, ..., Mask (hex, the
+// machine's byte order, which is little endian on every platform veil runs on).
+func parseRoutes(table string) []hostNet {
+	var out []hostNet
+	for _, line := range strings.Split(table, "\n")[1:] {
+		f := strings.Fields(line)
+		if len(f) < 8 {
+			continue
+		}
+		dst, err1 := strconv.ParseUint(f[1], 16, 32)
+		mask, err2 := strconv.ParseUint(f[7], 16, 32)
+		if err1 != nil || err2 != nil || mask == 0 {
+			continue // the default route overlaps everything: not a conflict
+		}
+		le := func(v uint64) [4]byte { return [4]byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)} }
+		m := le(mask)
+		bits := 0
+		for _, b := range m {
+			for ; b&0x80 != 0; b <<= 1 {
+				bits++
+			}
+		}
+		out = append(out, hostNet{iface: f[0], prefix: netip.PrefixFrom(netip.AddrFrom4(le(dst)), bits), route: true})
+	}
+	return out
+}

@@ -15,7 +15,7 @@
 //	node: worker-1
 //	role: worker
 //	wireguard: <WireGuard public key, base64>
-//	address: 100.96.0.2
+//	address: 10.200.0.2
 //	issued: 2026-11-02T09:00:00Z
 //
 // encoded as base64url(text) "." base64url(Ed25519 signature over text). Every node knows the

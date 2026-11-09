@@ -259,6 +259,9 @@ func FormatStatus(s *Status) string {
 		}
 		fmt.Fprintf(&b, "  %-6s %-9s %s\n", name, f.State, detail)
 		if name == "mesh" && f.Mesh != nil {
+			for _, w := range f.Mesh.Warnings {
+				fmt.Fprintf(&b, "         ! %s\n", w)
+			}
 			for _, p := range f.Mesh.Peers {
 				d := p.Path
 				if p.Endpoint != "" {

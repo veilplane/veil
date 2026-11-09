@@ -1834,6 +1834,11 @@ func (c *Ctx) deviceTable(devs []device) {
 				case f.Error != "":
 					fmt.Fprintf(c.Out, "%s %s\n", c.st.red(d.Node+" "+name+":"), f.Error)
 				}
+				if f := d.Agent.Status.Features[name]; f.Mesh != nil {
+					for _, w := range f.Mesh.Warnings {
+						fmt.Fprintf(c.Out, "%s %s\n", c.st.yellow(d.Node+" mesh:"), w)
+					}
+				}
 			}
 		}
 	}
@@ -1936,6 +1941,11 @@ func (c *Ctx) deviceDetail(d *device) {
 				v += " " + c.st.red(f.Error)
 			}
 			kv = append(kv, [2]string{n, v})
+			if f.Mesh != nil {
+				for _, w := range f.Mesh.Warnings {
+					kv = append(kv, [2]string{"", c.st.yellow("! " + w)})
+				}
+			}
 		}
 	}
 	fields(c.Out, c.st, kv)

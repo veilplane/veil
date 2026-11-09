@@ -34,7 +34,7 @@ the feature `mesh` on for the cluster and the node's `agent.json` allows it.
    office (NAT)                      home lab (NAT)                    data centre
  +------------------+             +------------------+             +--------------+
  | cp-1   worker-1  |             |    worker-2      |             |   worker-3   |
- | 100.96.0.1  .0.2 |<===========>|    100.96.0.3    |<===========>|  100.96.0.4  |
+ | 10.200.0.1  .0.2 |<===========>|    10.200.0.3    |<===========>|  10.200.0.4  |
  +--------+---------+  WireGuard  +--------+---------+  WireGuard  +------+-------+
           |            (direct)            |                              |
           +--------------------------------+------------------------------+
@@ -45,7 +45,8 @@ the feature `mesh` on for the cluster and the node's `agent.json` allows it.
                                   +------------------+
 ```
 
-- Every node gets an address in the cluster's mesh network (default `100.96.0.0/16`) and a
+- Every node gets an address in the cluster's mesh network (default `10.200.0.0/16`; not in
+  `100.64.0.0/10`, see "Conflicts with the machine" below) and a
   WireGuard interface `veil0`.
 - The agent registers with the backend, receives the list of members and keeps one WireGuard
   peer per member, each limited to that member's address.
@@ -120,7 +121,7 @@ cluster: k7f3m2x9q1ab
 node: worker-1
 role: worker
 wireguard: <WireGuard public key, base64>
-address: 100.96.0.2
+address: 10.200.0.2
 issued: 2026-11-02T09:00:00Z
 ```
 
@@ -195,10 +196,10 @@ default flannel:
 ```sh
 # control plane node (with its etcd proxy)
 k3s server --datastore-endpoint http://127.0.0.1:2379 \
-  --node-ip 100.96.0.1 --advertise-address 100.96.0.1 --tls-san 100.96.0.1 --flannel-iface veil0
+  --node-ip 10.200.0.1 --advertise-address 10.200.0.1 --tls-san 10.200.0.1 --flannel-iface veil0
 
 # worker
-k3s agent --server https://100.96.0.1:6443 --node-ip 100.96.0.2 --flannel-iface veil0
+k3s agent --server https://10.200.0.1:6443 --node-ip 10.200.0.2 --flannel-iface veil0
 ```
 
 Pod traffic then runs VXLAN inside WireGuard: encrypted between nodes, with an MTU of 1370 for
@@ -206,7 +207,8 @@ pods (1420 for WireGuard, minus 50 for VXLAN). Flannel sets this itself from the
 Routing pod networks directly through WireGuard, without VXLAN, is a later optimisation.
 
 The node must allow UDP on its WireGuard port (`port` in the agent's `mesh.json`, or
-`mesh.port` in `agent.json`) in its own firewall.
+`mesh.port` in `agent.json`) in its own firewall, and traffic on `veil0` (firewalld:
+`firewall-cmd --permanent --zone=trusted --add-interface=veil0`).
 
 ## 8. Status and troubleshooting
 
@@ -217,11 +219,11 @@ veil status        # the agent's status file, /var/lib/veil/veil.lock
 ```
 running  b1 of cluster edge (worker), backend connected, updated 2s ago
   proxy  off
-  mesh   running   100.96.0.3 on veil0 (kernel), public 198.51.100.12:52700
-         a2                   100.96.0.2      worker        connected    direct 198.51.100.11:52035
-         cp1                  100.96.0.1      control-plane connected    direct 198.51.100.11:52702
-         p1                   100.96.0.6      worker        connected    direct 198.51.100.31:51916
-         s1                   100.96.0.4      worker        unreachable
+  mesh   running   10.200.0.3 on veil0 (kernel), public 198.51.100.12:52700
+         a2                   10.200.0.2      worker        connected    direct 198.51.100.11:52035
+         cp1                  10.200.0.1      control-plane connected    direct 198.51.100.11:52702
+         p1                   10.200.0.6      worker        connected    direct 198.51.100.31:51916
+         s1                   10.200.0.4      worker        unreachable
 ```
 
 `wg show veil0` shows the WireGuard side. The dashboard's cluster page shows the same for all
@@ -234,6 +236,21 @@ nodes, with a matrix of who reaches whom.
 | `unreachable` | no path: usually both nodes behind symmetric NAT (mobile networks, some corporate networks) or UDP blocked. A node with a public address, or a forwarded UDP port on one of the two, helps. |
 | `refused` | the backend listed a member without a valid certificate of this cluster. The agent ignores it. If you did not invite it, report it. |
 | backend not connected | the mesh keeps working with what it knows; new members and address changes wait |
+| `! ...` under the mesh line | something on this machine gets in the way, see below |
+
+**Conflicts with the machine.** Every 30 seconds the agent looks at the machine's interfaces and
+routes and reports (in `veil status`, its log and to the dashboard) what gets in the way:
+
+- **Another network overlapping the mesh network**: an address or a route on another interface
+  (a VPN, Docker, a LAN) that covers mesh addresses. Traffic for them may go there instead.
+- **Tailscale**, when the mesh network lies in `100.64.0.0/10`: Tailscale takes its addresses
+  from there and drops every packet from that range that does not arrive through its own
+  interface. The other nodes' mesh packets arrive through `veil0` and are dropped; the
+  WireGuard handshake still works, so the peer shows `connected` while nothing gets through.
+  This is why the default mesh network is `10.200.0.0/16`. Meshes that still use an address in
+  `100.64.0.0/10` move when the backend's network changes: control plane nodes take their new
+  address by themselves, workers need a new invite. Until then,
+  `iptables -I INPUT 1 -i veil0 -j ACCEPT` lets the mesh through (until the next reboot).
 
 ## 9. Configuration
 

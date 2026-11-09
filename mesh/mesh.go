@@ -36,6 +36,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -55,7 +56,7 @@ type Config struct {
 	PrivateKey  string // WireGuard private key (base64)
 	Certificate string // this node's mesh certificate
 	MeshKey     string // public half of the cluster's mesh key (base64)
-	Prefix      string // the mesh network, e.g. 100.96.0.0/16
+	Prefix      string // the mesh network, e.g. 10.200.0.0/16
 
 	// Backend: the agent API (it carries the access token).
 	Backend Backend
@@ -142,7 +143,13 @@ type agent struct {
 	connected bool
 	local     []netip.AddrPort // our interface addresses, as last registered
 	offset    time.Duration    // the backend's clock minus ours
+	warnings  []string         // conflicts with the machine (conflicts), checked every warnEvery
+	warnedAt  time.Time
 }
+
+// warnEvery: how often the machine is checked for conflicts with the mesh (Tailscale may start
+// later, another interface may come up).
+const warnEvery = 30 * time.Second
 
 func newAgent(cfg *Config) (*agent, error) {
 	a := &agent{cfg: cfg, peers: map[string]*peer{}}
@@ -182,6 +189,9 @@ func (a *agent) run(ctx context.Context) error {
 		return err
 	}
 	log.Printf("%s up (%s), %s in %s, mesh of cluster %s", a.cfg.Interface, a.wg.mode, a.self.Address, a.prefix, a.cfg.Cluster)
+	a.mu.Lock()
+	a.checkConflicts()
+	a.mu.Unlock()
 
 	if a.cfg.Backend == nil {
 		return errors.New("no connection to the backend")
@@ -869,6 +879,8 @@ type Status struct {
 	Public    string       `json:"public,omitempty"`
 	Updated   time.Time    `json:"updated"`
 	Peers     []PeerStatus `json:"peers"`
+	// Warnings: what on this machine gets in the way of the mesh (an overlapping network, Tailscale)
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type PeerStatus struct {
@@ -880,6 +892,18 @@ type PeerStatus struct {
 	Endpoint  string    `json:"endpoint,omitempty"`
 	Handshake time.Time `json:"handshake,omitzero"`
 	Refused   string    `json:"refused,omitempty"`
+}
+
+// checkConflicts looks for what gets in the way of the mesh on this machine and logs what is
+// new. a.mu held.
+func (a *agent) checkConflicts() {
+	w := conflicts(a.prefix, a.cfg.Interface, hostNets())
+	for _, m := range w {
+		if !slices.Contains(a.warnings, m) {
+			log.Printf("mesh: %s", m)
+		}
+	}
+	a.warnings, a.warnedAt = w, time.Now()
 }
 
 func (a *agent) writeStatus() {
@@ -896,6 +920,10 @@ func (a *agent) writeStatus() {
 	if a.observed.IsValid() {
 		s.Public = a.observed.String()
 	}
+	if time.Since(a.warnedAt) > warnEvery {
+		a.checkConflicts()
+	}
+	s.Warnings = a.warnings
 	for _, p := range a.sortedPeers() {
 		ps := PeerStatus{Node: p.node, State: strings.ToLower(p.state.String()), Refused: p.refused, Handshake: p.handshake}
 		if p.refused == "" {

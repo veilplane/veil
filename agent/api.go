@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 // Copyright 2026 Julian Siebert. See LICENSE.md.
 
-package agent
+package ctl
 
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,376 +13,405 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
+	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/veilplane/veil/mesh"
-	"github.com/veilplane/veil/proxy"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-// DefaultAPI is the agent API of Veilplane.
+// DefaultAPI is the management API of Veilplane.
 const DefaultAPI = "https://api.veilplane.com"
 
-// api is a client of the backend's agent API (OpenAPI group "agent").
-type api struct {
-	base    string
-	roots   *x509.CertPool // nil: the system's
-	http    *http.Client
-	version string
+// ---------------------------------------------------------------- the client
+
+// Client talks to the management API, as a signed-in person (session) or with an API token.
+type Client struct {
+	Base    string
+	Session string // "name=value" of the session cookie
+	Token   string // vpt_...
+	Trial   string // X-Veilplane-Trial, for the trial endpoints
+	UA      string
+	HTTP    *http.Client
 }
 
-// apiError is an answer other than 2xx.
-type apiError struct {
-	Status int
-	Detail string
+// Problem is an error answer of the API (RFC 9457).
+type Problem struct {
+	Status int    `json:"status"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
 }
 
-func (e *apiError) Error() string {
-	if e.Detail != "" {
-		return fmt.Sprintf("%d %s", e.Status, e.Detail)
+func (p *Problem) Error() string {
+	switch {
+	case p.Detail != "":
+		return p.Detail
+	case p.Status == http.StatusUnauthorized:
+		return "not signed in"
+	case p.Title != "":
+		return strings.ToLower(p.Title)
 	}
-	return fmt.Sprintf("%d %s", e.Status, http.StatusText(e.Status))
+	return fmt.Sprintf("the API answered %d %s", p.Status, http.StatusText(p.Status))
 }
 
-func statusOf(err error) int {
-	var e *apiError
-	if errors.As(err, &e) {
-		return e.Status
-	}
-	return 0
+// IsStatus tells whether err is an API answer with that status.
+func IsStatus(err error, status int) bool {
+	var p *Problem
+	return errors.As(err, &p) && p.Status == status
 }
 
-func loadRoots(caFile string) (*x509.CertPool, error) {
-	if caFile == "" {
-		return nil, nil
-	}
-	pem, err := os.ReadFile(caFile)
-	if err != nil {
-		return nil, err
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(pem) {
-		return nil, fmt.Errorf("%s: no certificates", caFile)
-	}
-	return pool, nil
-}
-
-func newAPI(base, caFile, version string) (*api, error) {
-	u, err := url.Parse(base)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return nil, fmt.Errorf("the API address must be https://host[:port] (http only for development): %q", base)
-	}
-	roots, err := loadRoots(caFile)
-	if err != nil {
-		return nil, err
-	}
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
-	return &api{base: strings.TrimRight(base, "/"), roots: roots, http: &http.Client{Transport: tr}, version: version}, nil
-}
-
-// do sends in as JSON and decodes the answer into out. 304 is no error (out stays as it is).
-func (a *api) do(ctx context.Context, method, path, token string, in, out any, header http.Header) (*http.Response, error) {
-	var body io.Reader
-	if in != nil {
-		raw, err := json.Marshal(in)
+// Do sends a request. body (if not nil) goes as JSON; out (if not nil) gets the JSON answer, a
+// *json.RawMessage gets it as it is. It returns the answer's headers.
+func (c *Client) Do(ctx context.Context, method, path string, body, out any) (http.Header, error) {
+	var rd io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
-		body = bytes.NewReader(raw)
+		rd = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, a.base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.Base, "/")+path, rd)
 	if err != nil {
 		return nil, err
 	}
-	for k, v := range header {
-		req.Header[k] = v
-	}
-	req.Header.Set("User-Agent", "veil/"+a.version)
-	if in != nil {
+	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json, application/problem+json")
+	req.Header.Set("User-Agent", c.UA)
+	switch {
+	case c.Token != "":
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	case c.Session != "":
+		req.Header.Set("Cookie", c.Session)
 	}
-	resp, err := a.http.Do(req)
+	if c.Trial != "" {
+		req.Header.Set("X-Veilplane-Trial", c.Trial)
+	}
+	hc := c.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: 60 * time.Second}
+	}
+	resp, err := hc.Do(req)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			return nil, fmt.Errorf("cannot reach %s: %v", c.Base, ue.Err)
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return resp, err
+		return resp.Header, err
 	}
-	if resp.StatusCode == http.StatusNotModified {
-		return resp, nil
-	}
-	if resp.StatusCode/100 != 2 {
-		var problem struct{ Detail, Title string }
-		json.Unmarshal(raw, &problem)
-		return resp, &apiError{Status: resp.StatusCode, Detail: cmpOr(problem.Detail, problem.Title)}
+	if resp.StatusCode >= 300 {
+		p := &Problem{}
+		if json.Unmarshal(raw, p) != nil || p.Status == 0 {
+			p = &Problem{Status: resp.StatusCode}
+			if s := strings.TrimSpace(string(raw)); s != "" && len(s) < 200 && !strings.HasPrefix(s, "<") {
+				p.Detail = s
+			}
+		}
+		p.Status = resp.StatusCode
+		return resp.Header, p
 	}
 	if out != nil && len(raw) > 0 {
-		if err := json.Unmarshal(raw, out); err != nil {
-			return resp, fmt.Errorf("%s %s: unreadable answer: %v", method, path, err)
+		if r, ok := out.(*json.RawMessage); ok {
+			*r = append((*r)[:0], raw...)
+		} else if err := json.Unmarshal(raw, out); err != nil {
+			return resp.Header, fmt.Errorf("unexpected answer from %s %s: %v", method, path, err)
 		}
 	}
-	return resp, nil
+	return resp.Header, nil
 }
 
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
+func userAgent(version string) string {
+	return fmt.Sprintf("veilctl/%s (%s/%s)", version, runtime.GOOS, runtime.GOARCH)
+}
+
+// esc escapes one path segment.
+func esc(s string) string { return url.PathEscape(s) }
+
+// ---------------------------------------------------------------- configuration
+
+// Config is veilctl's file: contexts (an API with its sign-in and default organization) and
+// which one is current. It holds secrets (sessions, tokens), so it is written 0600.
+type Config struct {
+	Current  string              `json:"current,omitempty"`
+	Contexts map[string]*Context `json:"contexts,omitempty"`
+
+	path string
+}
+
+// Context is one API with its sign-in.
+type Context struct {
+	API     string    `json:"api,omitempty"`
+	Email   string    `json:"email,omitempty"`
+	Session string    `json:"session,omitempty"` // cookie "name=value"
+	Token   string    `json:"token,omitempty"`   // API token, instead of a session
+	Org     string    `json:"org,omitempty"`     // default organization
+	Trial   *TrialRef `json:"trial,omitempty"`   // the trial cluster started here
+}
+
+// TrialRef is a trial cluster and the token to look at it.
+type TrialRef struct {
+	Cluster string    `json:"cluster"`
+	Token   string    `json:"token"`
+	Expires time.Time `json:"expires"`
+	Code    string    `json:"joinCode,omitempty"`
+}
+
+// configPath: VEILCTL_CONFIG, else <user config dir>/veilctl/config.json.
+func configPath() (string, error) {
+	if p := os.Getenv("VEILCTL_CONFIG"); p != "" {
+		return p, nil
 	}
-	return b
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("no configuration directory (set VEILCTL_CONFIG): %v", err)
+	}
+	return filepath.Join(dir, "veilctl", "config.json"), nil
 }
 
-// ---------------------------------------------------------------- join and tokens
-
-type joined struct {
-	Cluster      string `json:"cluster"`
-	Node         string `json:"node"`
-	Role         string `json:"role"`
-	MasterKey    string `json:"masterKey"` // create, receive or none
-	InviteSecret string `json:"inviteSecret"`
-	// API is the agent API of the cluster's region, if the backend names one: the agent uses it
-	// from now on. A join code of another region is redirected there (307), which the HTTP
-	// client follows with the same request.
-	API string `json:"api"`
+func loadConfig() (*Config, error) {
+	p, err := configPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg := &Config{path: p, Contexts: map[string]*Context{}}
+	raw, err := os.ReadFile(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return cfg, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, cfg); err != nil {
+		return nil, fmt.Errorf("%s: %v", p, err)
+	}
+	if cfg.Contexts == nil {
+		cfg.Contexts = map[string]*Context{}
+	}
+	return cfg, nil
 }
 
-func (a *api) join(ctx context.Context, code, node string, key ed25519.PrivateKey) (*joined, error) {
-	msg := "veilplane join v1\n" + code + "\n" + node
-	var out joined
-	_, err := a.do(ctx, "POST", "/agent/v1/join", "", map[string]string{
-		"code": code, "node": node,
-		"publicKey": base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)),
-		"signature": base64.StdEncoding.EncodeToString(ed25519.Sign(key, []byte(msg))),
-	}, &out, nil)
-	return &out, err
+func (cfg *Config) save() error {
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.path), 0o700); err != nil {
+		return err
+	}
+	tmp := cfg.path + ".tmp"
+	if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, cfg.path)
 }
 
-type accessToken struct {
-	Token     string    `json:"token"`
+// ---------------------------------------------------------------- the API's types (the fields shown)
+
+type me struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"emailVerified"`
+	Name          string `json:"name"`
+	Locale        string `json:"locale"`
+}
+
+type myOrg struct {
+	Slug  string `json:"slug"`
+	Name  string `json:"name"`
+	Plan  string `json:"plan"`
+	Admin bool   `json:"admin"`
+}
+
+type organization struct {
+	Slug      string    `json:"slug"`
+	Name      string    `json:"name"`
+	Plan      string    `json:"plan"`
+	Status    string    `json:"status"`
+	Admin     bool      `json:"admin"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type member struct {
+	UserID string    `json:"userId"`
+	Email  string    `json:"email"`
+	Name   string    `json:"name"`
+	Admin  bool      `json:"admin"`
+	Since  time.Time `json:"since"`
+}
+
+type invitation struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Admin     bool      `json:"admin"`
+	InvitedBy string    `json:"invitedBy"`
+	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
-	Role      string    `json:"role"`
+	Link      string    `json:"link"`
 }
 
-func (a *api) token(ctx context.Context, cluster, node string, key ed25519.PrivateKey) (*accessToken, error) {
-	now := time.Now().Unix()
-	n := make([]byte, 16)
-	rand.Read(n)
-	nonce := hex.EncodeToString(n)
-	msg := "veilplane token v1\n" + cluster + "\n" + node + "\n" + strconv.FormatInt(now, 10) + "\n" + nonce
-	var out accessToken
-	_, err := a.do(ctx, "POST", "/agent/v1/token", "", map[string]any{
-		"cluster": cluster, "node": node, "time": now, "nonce": nonce,
-		"signature": base64.StdEncoding.EncodeToString(ed25519.Sign(key, []byte(msg))),
-	}, &out, nil)
-	return &out, err
+type myInvitation struct {
+	ID        string    `json:"id"`
+	OrgName   string    `json:"orgName"`
+	OrgSlug   string    `json:"orgSlug"`
+	Admin     bool      `json:"admin"`
+	InvitedBy string    `json:"invitedBy"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-// ---------------------------------------------------------------- config
+type invitationPreview struct {
+	OrgName   string    `json:"orgName"`
+	OrgSlug   string    `json:"orgSlug"`
+	Email     string    `json:"email"`
+	Admin     bool      `json:"admin"`
+	InvitedBy string    `json:"invitedBy"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	ForMe     bool      `json:"forMe"`
+}
 
-// RemoteConfig is what the backend wants this agent to run.
-type RemoteConfig struct {
-	Cluster string `json:"cluster"`
-	Node    string `json:"node"`
-	Role    string `json:"role"`
+type features struct {
+	Proxy bool `json:"proxy"`
+	Mesh  bool `json:"mesh"`
+}
+
+type cluster struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Region            string     `json:"region"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	Revision          int64      `json:"revision"`
+	CompactRevision   int64      `json:"compactRevision"`
+	Devices           int64      `json:"devices"`
+	SizeBytes         int64      `json:"sizeBytes"`
+	QuotaBytes        int64      `json:"quotaBytes"`
+	DeletedAt         *time.Time `json:"deletedAt"`
+	PurgeAt           *time.Time `json:"purgeAt"`
+	Features          features   `json:"features"`
+	RegionUnavailable bool       `json:"regionUnavailable"`
+}
+
+type joinCode struct {
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// agentStatus is the part of an agent's report that veilctl shows; it may hold more.
+type agentStatus struct {
+	Version string `json:"version"`
+	State   string `json:"state"`
+	Error   string `json:"error"`
 	Backend struct {
-		GRPC string `json:"grpc"`
-		TLS  bool   `json:"tls"`
+		Connected bool `json:"connected"`
 	} `json:"backend"`
-	Features struct {
-		Proxy struct {
-			Enabled bool `json:"enabled"`
-		} `json:"proxy"`
-		Mesh struct {
-			Enabled bool   `json:"enabled"`
-			Prefix  string `json:"prefix"`
+	Features map[string]*struct {
+		Wanted   bool   `json:"wanted"`
+		Allowed  bool   `json:"allowed"`
+		State    string `json:"state"`
+		Error    string `json:"error"`
+		Listen   string `json:"listen"`
+		Revision int64  `json:"revision"`
+		Mesh     *struct {
+			Warnings []string `json:"warnings"`
 		} `json:"mesh"`
 	} `json:"features"`
 }
 
-func (r *RemoteConfig) wants(feature string) bool {
-	switch feature {
-	case "proxy":
-		return r.Features.Proxy.Enabled
-	case "mesh":
-		return r.Features.Mesh.Enabled
-	}
-	return false
+type device struct {
+	Node      string     `json:"node"`
+	FirstSeen time.Time  `json:"firstSeen"`
+	LastSeen  *time.Time `json:"lastSeen"`
+	RevokedAt *time.Time `json:"revokedAt"`
+	Role      string     `json:"role"`
+	Agent     *struct {
+		ReportedAt time.Time   `json:"reportedAt"`
+		Status     agentStatus `json:"status"`
+	} `json:"agent"`
 }
 
-// config asks for the config; with etag, the backend waits up to wait for a change and the
-// answer is nil if there was none.
-func (a *api) config(ctx context.Context, token, etag string, wait time.Duration) (*RemoteConfig, string, error) {
-	h := http.Header{}
-	if etag != "" {
-		h.Set("If-None-Match", etag)
-	}
-	var out RemoteConfig
-	resp, err := a.do(ctx, "GET", fmt.Sprintf("/agent/v1/config?wait=%d", int(wait.Seconds())), token, nil, &out, h)
-	if err != nil {
-		return nil, "", err
-	}
-	if resp.StatusCode == http.StatusNotModified {
-		return nil, etag, nil
-	}
-	return &out, resp.Header.Get("ETag"), nil
+type meshView struct {
+	Prefix  string `json:"prefix"`
+	Members []struct {
+		Node       string     `json:"node"`
+		Role       string     `json:"role"`
+		Address    string     `json:"address"`
+		Registered bool       `json:"registered"`
+		Online     bool       `json:"online"`
+		Observed   string     `json:"observed"`
+		Endpoints  []string   `json:"endpoints"`
+		ReportedAt *time.Time `json:"reportedAt"`
+		Peers      []struct {
+			Node          string     `json:"node"`
+			State         string     `json:"state"`
+			Path          string     `json:"path"`
+			LastHandshake *time.Time `json:"lastHandshake"`
+		} `json:"peers"`
+	} `json:"members"`
 }
 
-// ---------------------------------------------------------------- tokens for gRPC and the API
-
-// tokens keeps a current access token. It is the gRPC per-RPC credential of the agent's
-// connection: every call carries "authorization: Bearer vt1....".
-type tokens struct {
-	api           *api
-	cluster, node string
-	key           ed25519.PrivateKey
-	secure        bool // the connection uses TLS (the token must not travel in the clear)
-
-	mu      sync.Mutex
-	current *accessToken
-	issued  time.Time
-	revoked bool
+type apiToken struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	CreatedBy  string     `json:"createdBy"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+	ExpiresAt  *time.Time `json:"expiresAt"`
+	Token      string     `json:"token"`
 }
 
-// get returns a token that is valid for a while longer, fetching a new one when two thirds of
-// the old one's lifetime are over.
-func (t *tokens) get(ctx context.Context) (string, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := time.Now()
-	if t.current != nil && now.Before(t.issued.Add(t.current.ExpiresAt.Sub(t.issued)*2/3)) {
-		return t.current.Token, nil
-	}
-	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	tok, err := t.api.token(tctx, t.cluster, t.node, t.key)
-	if err != nil {
-		if statusOf(err) == http.StatusForbidden {
-			t.revoked = true
-		}
-		if t.current != nil && now.Before(t.current.ExpiresAt.Add(-30*time.Second)) {
-			return t.current.Token, nil // the old one still works
-		}
-		return "", fmt.Errorf("access token: %w", err)
-	}
-	t.current, t.issued, t.revoked = tok, now, false
-	return tok.Token, nil
+type auditEntry struct {
+	ID        int64     `json:"id"`
+	At        time.Time `json:"at"`
+	ActorKind string    `json:"actorKind"`
+	Actor     string    `json:"actor"`
+	Action    string    `json:"action"`
+	Target    string    `json:"target"`
+	Details   string    `json:"details"`
+	IP        string    `json:"ip"`
 }
 
-func (t *tokens) isRevoked() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.revoked
+type region struct {
+	Name string `json:"name"`
+	Home bool   `json:"home"`
 }
 
-func (t *tokens) setRevoked() {
-	t.mu.Lock()
-	t.revoked = true
-	t.mu.Unlock()
+type session struct {
+	ID         string    `json:"id"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+	IP         string    `json:"ip"`
+	UserAgent  string    `json:"userAgent"`
+	Current    bool      `json:"current"`
 }
 
-func (t *tokens) forget() {
-	t.mu.Lock()
-	t.current = nil
-	t.mu.Unlock()
+type passkey struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
 }
 
-func (t *tokens) expires() time.Time {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.current == nil {
-		return time.Time{}
-	}
-	return t.current.ExpiresAt
+type signedIn struct {
+	UserID     string `json:"userId"`
+	Email      string `json:"email"`
+	NewAccount bool   `json:"newAccount"`
+	HasPasskey bool   `json:"hasPasskey"`
 }
 
-func (t *tokens) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
-	tok, err := t.get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{"authorization": "Bearer " + tok}, nil
-}
-
-func (t *tokens) RequireTransportSecurity() bool { return t.secure }
-
-// dial opens the gRPC connection to the backend: TLS with the server certificate only (or none,
-// for development), the identity in the access token. A proxy in front of the backend can end
-// TLS: nothing depends on the connection itself.
-func dial(addr string, useTLS bool, roots *x509.CertPool, tok *tokens) (*grpc.ClientConn, error) {
-	target, resolverOpt, firstHost := proxy.Target(addr)
-	creds := insecure.NewCredentials()
-	if useTLS {
-		creds = credentials.NewTLS(&tls.Config{RootCAs: roots, ServerName: firstHost, MinVersion: tls.VersionTLS12})
-	}
-	opts := append(proxy.DialOptions(), grpc.WithTransportCredentials(creds), grpc.WithPerRPCCredentials(tok), resolverOpt)
-	return grpc.Dial(target, opts...)
-}
-
-// ---------------------------------------------------------------- the mesh's backend
-
-// meshBackend is the mesh's side of the agent API (mesh.Backend).
-type meshBackend struct {
-	api *api
-	tok *tokens
-}
-
-func (m *meshBackend) Register(ctx context.Context, certificate string, endpoints []string) (*mesh.Registration, error) {
-	t, err := m.tok.get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out mesh.Registration
-	_, err = m.api.do(ctx, "POST", "/agent/v1/mesh/register", t, map[string]any{"certificate": certificate, "endpoints": endpoints}, &out, nil)
-	return &out, err
-}
-
-func (m *meshBackend) Peers(ctx context.Context, etag string) (*mesh.PeerList, string, error) {
-	t, err := m.tok.get(ctx)
-	if err != nil {
-		return nil, "", err
-	}
-	h := http.Header{}
-	if etag != "" {
-		h.Set("If-None-Match", etag)
-	}
-	cctx, cancel := context.WithTimeout(ctx, configWait+30*time.Second)
-	defer cancel()
-	var out mesh.PeerList
-	resp, err := m.api.do(cctx, "GET", fmt.Sprintf("/agent/v1/mesh/peers?wait=%d", int(configWait.Seconds())), t, nil, &out, h)
-	if err != nil {
-		return nil, "", err
-	}
-	if resp.StatusCode == http.StatusNotModified {
-		return nil, etag, nil
-	}
-	return &out, resp.Header.Get("ETag"), nil
-}
-
-func (m *meshBackend) Report(ctx context.Context, peers []mesh.PeerReport) error {
-	t, err := m.tok.get(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = m.api.do(ctx, "PUT", "/agent/v1/mesh/report", t, map[string]any{"peers": peers}, nil, nil)
-	return err
-}
-
-func (m *meshBackend) Clock(ctx context.Context) (time.Time, error) {
-	var out struct {
-		UnixMicros int64 `json:"unixMicros"`
-	}
-	if _, err := m.api.do(ctx, "GET", "/agent/v1/clock", "", nil, &out, nil); err != nil {
-		return time.Time{}, err
-	}
-	return time.UnixMicro(out.UnixMicros), nil
+type trial struct {
+	Cluster      string    `json:"cluster"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+	JoinCode     string    `json:"joinCode"`
+	Command      string    `json:"command"`
+	Token        string    `json:"token"`
+	DashboardURL string    `json:"dashboardUrl"`
+	Revision     int64     `json:"revision"`
+	SizeBytes    int64     `json:"sizeBytes"`
+	QuotaBytes   int64     `json:"quotaBytes"`
+	MaxNodes     int       `json:"maxNodes"`
+	Devices      []device  `json:"devices"`
 }

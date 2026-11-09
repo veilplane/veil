@@ -135,7 +135,7 @@ func (f *fakeBackend) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			cfg := map[string]any{"cluster": "c1", "node": node, "role": role,
 				"backend":  map[string]any{"grpc": "127.0.0.1:1", "tls": false},
-				"features": map[string]any{"proxy": map[string]any{"enabled": f.proxy && role == "control-plane"}, "mesh": map[string]any{"enabled": f.mesh, "prefix": "100.96.0.0/16"}}}
+				"features": map[string]any{"proxy": map[string]any{"enabled": f.proxy && role == "control-plane"}, "mesh": map[string]any{"enabled": f.mesh, "prefix": "10.200.0.0/16"}}}
 			raw, _ := json.Marshal(cfg)
 			etag := fmt.Sprintf(`"%x"`, len(raw)*7+boolInt(f.proxy)*3+boolInt(f.mesh)+boolInt(f.revoked[node])*11)
 			changed, revoked := f.changed, f.revoked[node]
@@ -177,7 +177,7 @@ func (f *fakeBackend) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		if str("role") == "worker" {
 			f.kinds[code] = "worker"
-			answer["address"], answer["prefix"] = "100.96.0.2", "100.96.0.0/16"
+			answer["address"], answer["prefix"] = "10.200.0.2", "10.200.0.0/16"
 		} else {
 			f.kinds[code], f.secrets[code] = "invite", str("serverSecret")
 		}
@@ -395,7 +395,7 @@ func TestWorkerInviteHasNoMasterKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inv.Box != "" || inv.FileSecret != "" || inv.Certificate == "" || inv.Address != "100.96.0.2" {
+	if inv.Box != "" || inv.FileSecret != "" || inv.Certificate == "" || inv.Address != "10.200.0.2" {
 		t.Fatalf("worker invite: %+v", inv)
 	}
 	root, _ := base64.StdEncoding.DecodeString(inv.MeshKey)

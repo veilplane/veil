@@ -39,7 +39,7 @@ func TestCertificates(t *testing.T) {
 	k, _ := meshKey(testMaster(t), "alpha")
 	var wg [32]byte
 	rand.Read(wg[:])
-	c := Cert{Cluster: "alpha", Node: "w-1", Role: "worker", WireGuard: wg, Address: netip.MustParseAddr("100.96.0.2"),
+	c := Cert{Cluster: "alpha", Node: "w-1", Role: "worker", WireGuard: wg, Address: netip.MustParseAddr("10.200.0.2"),
 		Issued: time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)}
 	s, err := issue(k, c)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestCertificates(t *testing.T) {
 	}
 	// the backend changes the address or the key: the signature breaks
 	text, _ := base64.RawURLEncoding.DecodeString(strings.Split(s, ".")[0])
-	forged := strings.Replace(string(text), "100.96.0.2", "100.96.0.3", 1)
+	forged := strings.Replace(string(text), "10.200.0.2", "10.200.0.3", 1)
 	f := base64.RawURLEncoding.EncodeToString([]byte(forged)) + "." + strings.Split(s, ".")[1]
 	if _, err := verifyCert(k.Public().(ed25519.PublicKey), f); err == nil {
 		t.Fatal("altered certificate accepted")
@@ -101,14 +101,14 @@ func TestApplyRefusesWhatTheBackendCannotProve(t *testing.T) {
 		}
 		return s, wg
 	}
-	self, selfWG := mk("cp-1", "100.96.0.1", k)
-	good, _ := mk("w-1", "100.96.0.2", k)
-	foreign, _ := mk("w-2", "100.96.0.3", ed25519.NewKeyFromSeed(make([]byte, 32)))
-	dupe, _ := mk("w-3", "100.96.0.2", k)
+	self, selfWG := mk("cp-1", "10.200.0.1", k)
+	good, _ := mk("w-1", "10.200.0.2", k)
+	foreign, _ := mk("w-2", "10.200.0.3", ed25519.NewKeyFromSeed(make([]byte, 32)))
+	dupe, _ := mk("w-3", "10.200.0.2", k)
 	_ = selfWG
 
 	a := &agent{cfg: &Config{Cluster: "alpha"}, peers: map[string]*peer{}, meshKey: k.Public().(ed25519.PublicKey),
-		prefix: netip.MustParsePrefix("100.96.0.0/16"), wg: nil}
+		prefix: netip.MustParsePrefix("10.200.0.0/16"), wg: nil}
 	var err error
 	if a.self, err = verifyCert(a.meshKey, self); err != nil {
 		t.Fatal(err)
@@ -134,3 +134,43 @@ func TestApplyRefusesWhatTheBackendCannotProve(t *testing.T) {
 }
 
 func fakeWG(t *testing.T) *wgInterface { return &wgInterface{name: "test", mode: "test"} }
+
+// What gets in the way of the mesh network on a machine: an overlapping address or route on
+// another interface, and Tailscale when the mesh network lies in its range.
+func TestConflicts(t *testing.T) {
+	pf := netip.MustParsePrefix
+	nets := []hostNet{
+		{iface: "lo", prefix: pf("127.0.0.1/8")},
+		{iface: "eth0", prefix: pf("192.168.11.124/24")},
+		{iface: "veil0", prefix: pf("10.200.0.1/16")},         // our own: never a conflict
+		{iface: "eth0", prefix: pf("0.0.0.0/0"), route: true}, // the default route: neither
+		{iface: "cni0", prefix: pf("10.42.0.1/24")},
+		{iface: "tailscale0", prefix: pf("100.120.165.66/32")},
+	}
+	if got := conflicts(pf("10.200.0.0/16"), "veil0", nets); len(got) != 0 {
+		t.Fatalf("no conflict expected: %v", got)
+	}
+	// the old mesh network, in Tailscale's range
+	got := conflicts(pf("100.96.0.0/16"), "veil0", append(nets, hostNet{iface: "veil0", prefix: pf("100.96.0.1/16")}))
+	if len(got) != 1 || !strings.Contains(got[0], "Tailscale") || !strings.Contains(got[0], "iptables -I INPUT 1 -i veil0 -j ACCEPT") {
+		t.Fatalf("Tailscale not reported: %v", got)
+	}
+	// a network of another interface inside the mesh network, and a route into it
+	got = conflicts(pf("10.200.0.0/16"), "veil0", append(nets,
+		hostNet{iface: "docker0", prefix: pf("10.200.5.1/24")},
+		hostNet{iface: "wg9", prefix: pf("10.0.0.0/8"), route: true}))
+	if len(got) != 2 || !strings.Contains(got[0], "docker0") || !strings.Contains(got[1], "wg9 (a route)") {
+		t.Fatalf("overlaps: %v", got)
+	}
+}
+
+func TestParseRoutes(t *testing.T) {
+	table := "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +
+		"eth0\t00000000\t010BA8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n" +
+		"eth0\t000BA8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n" +
+		"veil0\t0000C80A\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+	got := parseRoutes(table)
+	if len(got) != 2 || got[0].prefix.String() != "192.168.11.0/24" || got[1].prefix.String() != "10.200.0.0/16" || got[1].iface != "veil0" {
+		t.Fatalf("%+v", got)
+	}
+}

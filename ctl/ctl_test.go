@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeAPI is a small stand-in for the management API: one person, one organization.
@@ -97,7 +98,13 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		c["features"] = f.features
 		reply(200, c)
 	case r.URL.Path == "/api/v1/orgs/acme/clusters/k7f3m2x9q1ab/devices":
-		reply(200, []any{})
+		reply(200, []any{map[string]any{"node": "cp-1", "role": "control-plane", "firstSeen": "2026-01-01T00:00:00Z",
+			"agent": map[string]any{"reportedAt": time.Now().UTC().Format(time.RFC3339), "status": map[string]any{
+				"version": "v1.0.0", "state": "running", "backend": map[string]any{"connected": true},
+				"features": map[string]any{
+					"proxy": map[string]any{"wanted": true, "allowed": true, "state": "running", "revision": 42},
+					"mesh": map[string]any{"wanted": true, "allowed": true, "state": "running",
+						"mesh": map[string]any{"warnings": []string{"Tailscale runs here and drops packets"}}}}}}}})
 	case r.URL.Path == "/api/v1/orgs/acme/clusters/k7f3m2x9q1ab/join-codes":
 		reply(201, map[string]any{"code": "vp1.eu.abc", "expiresAt": "2030-01-01T00:00:00Z"})
 	default:
@@ -200,6 +207,21 @@ func TestClusterByNameAndTypo(t *testing.T) {
 	}
 	if _, errs, code := run(t, cfg, srv.URL, "clusters", "show", "wbe"); code != 1 || !strings.Contains(errs, "did you mean web") {
 		t.Fatalf("typo: %d %s", code, errs)
+	}
+}
+
+// The nodes: what their agents run, and what gets in the way of their mesh.
+func TestDevicesShowAgentsAndMeshWarnings(t *testing.T) {
+	_, srv := newFakeAPI(t)
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	signIn(t, cfg, srv.URL)
+	out, errs, code := run(t, cfg, srv.URL, "clusters", "devices", "web")
+	if code != 0 || !strings.Contains(out, "running @42") || !strings.Contains(out, "cp-1 mesh: Tailscale runs here") {
+		t.Fatalf("%d\n%s\n%s", code, out, errs)
+	}
+	out, _, _ = run(t, cfg, srv.URL, "clusters", "devices", "web", "cp-1")
+	if !strings.Contains(out, "! Tailscale runs here") || !strings.Contains(out, "revision 42") {
+		t.Fatalf("%s", out)
 	}
 }
 
