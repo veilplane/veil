@@ -55,7 +55,8 @@ const (
 // Config is agent.json: what this node is allowed and how it runs things. The backend decides
 // which features run; Allow decides which of them this node accepts.
 type Config struct {
-	// API is the agent API, default https://api.veilplane.com (or the invite file's).
+	// API is the agent API to join at, default https://api.veilplane.com (or the invite file's).
+	// After joining, the agent uses the address the backend names for the cluster's region.
 	API string `json:"api,omitempty"`
 	// APICA: a PEM file with the CA of the backend's certificates (API and gRPC). Empty: the
 	// system's CAs, or the one in the invite file.

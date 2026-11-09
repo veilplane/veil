@@ -14,7 +14,7 @@ buildGoModule {
     filter = path: type: !(lib.hasSuffix ".nix" path) && baseNameOf path != "result";
   };
 
-  vendorHash = "sha256-sw5vm4y399i5rVEPITj1P9P0x0L5TT3005oFtGHc/go=";
+  vendorHash = lib.fakeHash;
 
   subPackages = [ "cmd/veil" ];
   env.CGO_ENABLED = 0;

@@ -342,7 +342,8 @@ func (a *Agent) enroll(ctx context.Context) {
 			caFile = a.paths.state(apiCAFile)
 		}
 	}
-	api, err := newAPI(cmpOr(a.cfg.API, id.API), caFile, a.version)
+	// the address the backend named at joining (the cluster's region) wins over agent.json's
+	api, err := newAPI(cmpOr(id.API, a.cfg.API), caFile, a.version)
 	if err != nil {
 		a.setError("api", err)
 		return
@@ -441,6 +442,13 @@ func (a *Agent) join(ctx context.Context) (*Identity, error) {
 	j, err := api.join(jctx, code, node, key)
 	if err != nil {
 		return nil, err
+	}
+	if j.API != "" && j.API != apiURL { // the cluster's region: everything from here on goes there
+		log.Printf("the cluster's region answers at %s", j.API)
+		if api, err = newAPI(j.API, caFile, a.version); err != nil {
+			return nil, err
+		}
+		apiURL = j.API
 	}
 	// enrolled: from here on, a failure has to unenroll again
 	if err := a.setUp(j, inv); err != nil {

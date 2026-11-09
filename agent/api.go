@@ -156,6 +156,10 @@ type joined struct {
 	Role         string `json:"role"`
 	MasterKey    string `json:"masterKey"` // create, receive or none
 	InviteSecret string `json:"inviteSecret"`
+	// API is the agent API of the cluster's region, if the backend names one: the agent uses it
+	// from now on. A join code of another region is redirected there (307), which the HTTP
+	// client follows with the same request.
+	API string `json:"api"`
 }
 
 func (a *api) join(ctx context.Context, code, node string, key ed25519.PrivateKey) (*joined, error) {

@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ type fakeBackend struct {
 	kinds   map[string]string // code -> bootstrap, invite, worker
 	changed chan struct{}
 	status  map[string]json.RawMessage
+	api     string // named in the join answer: the region's agent API
 }
 
 func newFake(t *testing.T) (*fakeBackend, *httptest.Server) {
@@ -102,7 +104,8 @@ func (f *fakeBackend) serve(w http.ResponseWriter, r *http.Request) {
 		if kind == "worker" {
 			role = "worker"
 		}
-		json.NewEncoder(w).Encode(map[string]string{"cluster": "c1", "node": node, "role": role, "masterKey": master, "inviteSecret": secret})
+		json.NewEncoder(w).Encode(map[string]string{"cluster": "c1", "node": node, "role": role, "masterKey": master, "inviteSecret": secret,
+			"api": f.api})
 	case "/agent/v1/token":
 		node, nonce := str("node"), str("nonce")
 		tm := int64(body["time"].(float64))
@@ -282,6 +285,36 @@ func TestJoinCreatesMasterKeyAndRunsWhatIsWanted(t *testing.T) {
 	f.mu.Unlock()
 	if !strings.Contains(reported, `"node":"cp1"`) {
 		t.Errorf("status report: %s", reported)
+	}
+}
+
+// A join code of another region: the instance the agent asks redirects it, the region's answer
+// names its agent API, and the agent talks to the region from then on.
+func TestJoinFollowsTheClustersRegion(t *testing.T) {
+	f, region := newFake(t)
+	f.set(func() { f.api = region.URL })
+	var redirected, other atomic.Int32
+	home := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/agent/v1/join" {
+			redirected.Add(1)
+			http.Redirect(w, r, region.URL+"/agent/v1/join", http.StatusTemporaryRedirect)
+			return
+		}
+		other.Add(1)
+		writeProblem(w, 404, "not here")
+	}))
+	t.Cleanup(home.Close)
+	n := startNode(t, home.URL, map[string]any{"node": "cp1", "join": "vp1.first", "allow": []string{}})
+	s := n.wait("running in the region", func(s *Status) bool { return s.State == "running" })
+	if s.API != region.URL {
+		t.Fatalf("status API %q, want the region's %q", s.API, region.URL)
+	}
+	var id Identity
+	if raw, err := os.ReadFile(n.paths.state(identityFile)); err != nil || json.Unmarshal(raw, &id) != nil || id.API != region.URL {
+		t.Fatalf("identity.json: %+v %v", id, err)
+	}
+	if redirected.Load() != 1 || other.Load() != 0 {
+		t.Fatalf("the home instance got %d joins and %d other requests", redirected.Load(), other.Load())
 	}
 }
 

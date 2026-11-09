@@ -52,7 +52,7 @@ func open(p Paths, version string) (*session, error) {
 			caFile = p.state(apiCAFile)
 		}
 	}
-	api, err := newAPI(cmpOr(cfg.API, id.API), caFile, version)
+	api, err := newAPI(cmpOr(id.API, cfg.API), caFile, version)
 	if err != nil {
 		return nil, err
 	}

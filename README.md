@@ -159,7 +159,7 @@ Every field is optional; an empty file (or none) is valid and leaves the node wa
 
 | Field | Default | Meaning |
 |---|---|---|
-| `api` | `https://api.veilplane.com`, or the invite file's | the agent API |
+| `api` | `https://api.veilplane.com`, or the invite file's | the agent API to join at. The backend may send the join on to the cluster's region and name that region's API in its answer; the agent stores it in `identity.json` and uses it from then on |
 | `apiCa` | the system's CAs, or the invite file's | a PEM file with the CA of the backend's TLS certificates (development, own deployments) |
 | `node` | the host name, or the invite file's | the node's name in the cluster: lower case letters, digits, `-` and `.` |
 | `join` | | a join code (`vp1....`) or an invite file (a path, relative to the config directory) |
