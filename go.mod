@@ -3,7 +3,7 @@ module github.com/veilplane/veil
 go 1.26.4
 
 require (
-	github.com/tink-crypto/tink-go/v2 v2.7.0
+	github.com/tink-crypto/tink-go/v2 v2.9.0
 	go.etcd.io/etcd/api/v3 v3.5.21
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
