@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/netip"
 	"os"
@@ -216,6 +217,9 @@ func Leave(ctx context.Context, p Paths, version string) error {
 // ReadStatus reads the status file.
 func ReadStatus(p Paths) (*Status, error) {
 	raw, err := os.ReadFile(p.Lock())
+	if errors.Is(err, fs.ErrPermission) {
+		return nil, fmt.Errorf("cannot read the status (%v): run it as root (sudo veil status)", err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("no status (is the agent running?): %v", err)
 	}

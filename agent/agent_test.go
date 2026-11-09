@@ -476,3 +476,22 @@ func TestInviteSealOpen(t *testing.T) {
 		t.Fatal("opened with the wrong half")
 	}
 }
+
+// Without the rights to read the status (it is root's), veil status says so instead of
+// suggesting that the agent is not running.
+func TestStatusWithoutRights(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every file")
+	}
+	p := Paths{Config: t.TempDir(), State: t.TempDir()}
+	if err := os.WriteFile(p.Lock(), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p.State, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(p.State, 0o700) })
+	if _, err := ReadStatus(p); err == nil || !strings.Contains(err.Error(), "sudo veil status") {
+		t.Fatalf("ReadStatus: %v", err)
+	}
+}
