@@ -41,6 +41,9 @@ in
   config = lib.mkIf cfg.enable {
     environment.etc."veil/agent.json".source = json.generate "agent.json" cfg.settings;
     environment.systemPackages = [ cfg.package ];
+    # veil manages its WireGuard interface itself
+    networking.networkmanager.unmanaged = lib.mkIf config.networking.networkmanager.enable
+      [ "interface-name:${cfg.settings.mesh.interface or "veil0"}" ];
 
     systemd.services.veil = {
       description = "veil (Veilplane agent: end-to-end encrypted etcd, WireGuard mesh)";

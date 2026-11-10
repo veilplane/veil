@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: FSL-1.1-ALv2
+# Copyright 2026 Julian Siebert. See LICENSE.md.
+#
+# veil manages its WireGuard interface (veil0) itself: NetworkManager leaves it alone, so desktops
+# do not offer it as a VPN to switch off, and nothing else changes its address. udev rather than
+# NetworkManager's own configuration: it works with every version and adds to what is configured
+# there instead of replacing it.
+SUBSYSTEM=="net", KERNEL=="veil*", ENV{NM_UNMANAGED}="1"

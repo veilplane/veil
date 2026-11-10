@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
@@ -172,5 +173,46 @@ func TestParseRoutes(t *testing.T) {
 	got := parseRoutes(table)
 	if len(got) != 2 || got[0].prefix.String() != "192.168.11.0/24" || got[1].prefix.String() != "10.200.0.0/16" || got[1].iface != "veil0" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// The interface is put back when something else takes it down or removes its address, and its
+// disappearance is reported. Needs root (CAP_NET_ADMIN); skipped without.
+func TestRepairInterface(t *testing.T) {
+	const name = "vguard0"
+	if err := ip("link", "add", name, "type", "bridge"); err != nil {
+		t.Skipf("cannot create interfaces here: %v", err)
+	}
+	t.Cleanup(func() { _ = ip("link", "del", name) })
+	addr := netip.MustParsePrefix("10.200.0.9/16")
+
+	fixed, err := repairInterface(name, addr) // new: down, without the address
+	if err != nil || !strings.Contains(fixed, "address was removed") || !strings.Contains(fixed, "taken down") {
+		t.Fatalf("first: %q %v", fixed, err)
+	}
+	if fixed, err := repairInterface(name, addr); err != nil || fixed != "" {
+		t.Fatalf("nothing to do: %q %v", fixed, err)
+	}
+	if err := ip("link", "set", name, "down"); err != nil {
+		t.Fatal(err)
+	}
+	if fixed, err := repairInterface(name, addr); err != nil || fixed != "it was taken down" {
+		t.Fatalf("down: %q %v", fixed, err)
+	}
+	if err := ip("address", "flush", "dev", name); err != nil {
+		t.Fatal(err)
+	}
+	if fixed, err := repairInterface(name, addr); err != nil || fixed != "its address was removed" {
+		t.Fatalf("flushed: %q %v", fixed, err)
+	}
+	i, _ := net.InterfaceByName(name)
+	if i == nil || i.Flags&net.FlagUp == 0 {
+		t.Fatalf("not up again: %v", i)
+	}
+	if err := ip("link", "del", name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repairInterface(name, addr); err == nil || !strings.Contains(err.Error(), "is gone") {
+		t.Fatalf("gone: %v", err)
 	}
 }

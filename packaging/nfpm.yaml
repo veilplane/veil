@@ -35,6 +35,10 @@ contents:
     dst: /usr/lib/systemd/system/veil.service
     file_info:
       mode: 0644
+  - src: packaging/veil.rules
+    dst: /usr/lib/udev/rules.d/85-veil.rules
+    file_info:
+      mode: 0644
   - dst: /etc/veil
     type: dir
     file_info:

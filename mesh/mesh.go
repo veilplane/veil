@@ -134,18 +134,23 @@ type agent struct {
 	wg       *wgInterface
 	priv     wgtypes.Key
 
-	mu        sync.Mutex
-	peers     map[string]*peer // by node
-	observed  netip.AddrPort   // our public address, as the reflector saw it
-	reflector netip.AddrPort
-	reflKey   wgtypes.Key
-	reflSince time.Time
-	connected bool
-	local     []netip.AddrPort // our interface addresses, as last registered
-	offset    time.Duration    // the backend's clock minus ours
-	warnings  []string         // conflicts with the machine (conflicts), checked every warnEvery
-	warnedAt  time.Time
+	mu         sync.Mutex
+	peers      map[string]*peer // by node
+	observed   netip.AddrPort   // our public address, as the reflector saw it
+	reflector  netip.AddrPort
+	reflKey    wgtypes.Key
+	reflSince  time.Time
+	connected  bool
+	local      []netip.AddrPort // our interface addresses, as last registered
+	offset     time.Duration    // the backend's clock minus ours
+	warnings   []string         // conflicts with the machine (conflicts), checked every warnEvery
+	warnedAt   time.Time
+	tampered   string // what guardInterface last had to put back, shown for tamperedFor
+	tamperedAt time.Time
 }
+
+// tamperedFor: how long the status says that the interface was changed from outside.
+const tamperedFor = 10 * time.Minute
 
 // warnEvery: how often the machine is checked for conflicts with the mesh (Tailscale may start
 // later, another interface may come up).
@@ -196,6 +201,10 @@ func (a *agent) run(ctx context.Context) error {
 	if a.cfg.Backend == nil {
 		return errors.New("no connection to the backend")
 	}
+	parent := ctx
+	ctx, lost := context.WithCancelCause(ctx)
+	defer lost(nil)
+	go a.guardInterface(ctx, lost)
 	backoff := time.Second
 	for ctx.Err() == nil {
 		start := time.Now()
@@ -215,7 +224,45 @@ func (a *agent) run(ctx context.Context) error {
 		}
 		backoff = min(backoff*2, 30*time.Second)
 	}
+	if parent.Err() == nil {
+		return context.Cause(ctx) // the interface is gone: the caller starts the mesh again
+	}
 	return nil
+}
+
+// guardEvery: how often the agent checks that its interface is still as it set it up.
+var guardEvery = 5 * time.Second
+
+// guardInterface keeps the interface as the mesh needs it: something else (NetworkManager, a
+// person with "ip link") may take it down or remove its address; the agent puts both back and
+// says so. If the interface is gone altogether, lost ends the mesh, and the agent starts it
+// again (a new interface, configured from scratch).
+func (a *agent) guardInterface(ctx context.Context, lost context.CancelCauseFunc) {
+	t := time.NewTicker(guardEvery)
+	defer t.Stop()
+	addr := netip.PrefixFrom(a.self.Address, a.prefix.Bits())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		fixed, err := repairInterface(a.cfg.Interface, addr)
+		if err != nil {
+			log.Printf("mesh: %v", err)
+			lost(err)
+			return
+		}
+		if fixed != "" {
+			msg := fmt.Sprintf("%s: %s (at %s); something else on this machine changed it, the agent set it back. "+
+				"NetworkManager: keep it away from %s (see the mesh README)", a.cfg.Interface, fixed, time.Now().Format("15:04:05"), a.cfg.Interface)
+			log.Printf("mesh: %s", msg)
+			a.mu.Lock()
+			a.tampered, a.tamperedAt = msg, time.Now()
+			a.mu.Unlock()
+			a.writeStatus()
+		}
+	}
 }
 
 func (a *agent) setConnected(v bool) {
@@ -924,6 +971,9 @@ func (a *agent) writeStatus() {
 		a.checkConflicts()
 	}
 	s.Warnings = a.warnings
+	if a.tampered != "" && time.Since(a.tamperedAt) < tamperedFor {
+		s.Warnings = append(slices.Clone(a.warnings), a.tampered)
+	}
 	for _, p := range a.sortedPeers() {
 		ps := PeerStatus{Node: p.node, State: strings.ToLower(p.state.String()), Refused: p.refused, Handshake: p.handshake}
 		if p.refused == "" {

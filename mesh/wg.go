@@ -244,3 +244,34 @@ func parseRoutes(table string) []hostNet {
 	}
 	return out
 }
+
+// repairInterface puts the interface back as the mesh set it up: up, with its address. It says
+// what it had to fix ("" if nothing), and fails if the interface does not exist any more.
+func repairInterface(name string, address netip.Prefix) (string, error) {
+	i, err := net.InterfaceByName(name)
+	if err != nil {
+		return "", fmt.Errorf("%s is gone (%v): starting the mesh again", name, err)
+	}
+	var fixed []string
+	has := false
+	if addrs, err := i.Addrs(); err == nil {
+		for _, a := range addrs {
+			if p, err := netip.ParsePrefix(a.String()); err == nil && p.Addr() == address.Addr() {
+				has = true
+			}
+		}
+	}
+	if !has {
+		if err := ip("address", "replace", address.String(), "dev", name); err != nil {
+			return "", err
+		}
+		fixed = append(fixed, "its address was removed")
+	}
+	if i.Flags&net.FlagUp == 0 {
+		if err := ip("link", "set", name, "up"); err != nil {
+			return "", err
+		}
+		fixed = append(fixed, "it was taken down")
+	}
+	return strings.Join(fixed, ", "), nil
+}

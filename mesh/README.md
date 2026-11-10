@@ -238,6 +238,13 @@ nodes, with a matrix of who reaches whom.
 | backend not connected | the mesh keeps working with what it knows; new members and address changes wait |
 | `! ...` under the mesh line | something on this machine gets in the way, see below |
 
+**The interface is the agent's.** Every 5 seconds the agent checks that `veil0` exists, is up and
+has its address. If something else took it down or removed the address (NetworkManager, a
+person with `ip`), the agent puts it back and says so in `veil status` for ten minutes; if the
+interface is gone, the mesh starts again with a new one. The packages keep NetworkManager away
+from it (a udev rule, `/usr/lib/udev/rules.d/85-veil.rules`; NixOS: `networking.networkmanager.unmanaged`),
+so desktops do not list it as a VPN to switch off.
+
 **Conflicts with the machine.** Every 30 seconds the agent looks at the machine's interfaces and
 routes and reports (in `veil status`, its log and to the dashboard) what gets in the way:
 
