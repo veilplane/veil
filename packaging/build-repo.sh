@@ -88,6 +88,8 @@ enabled=1
 gpgcheck=1
 repo_gpgcheck=1
 gpgkey=$base/veil-packages.asc
+# dnf keeps metadata for 48 hours by default: a new release would show up that late
+metadata_expire=1h
 EOF
 
 cat > "$site/index.html" <<EOF
