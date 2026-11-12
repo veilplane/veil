@@ -123,6 +123,15 @@ type peer struct {
 	scheduled int64            // number of the attempt scheduled last
 	window    time.Time        // end of the running attempt
 	attempts  int
+
+	// probes (probe.go)
+	probeSince time.Time     // probing since (the handshake became live)
+	lastAnswer time.Time     // the last answer to a probe
+	blocked    bool          // a live handshake, but no answers: traffic is dropped somewhere
+	rtt        time.Duration // round trip of the probes, smoothed
+	probes     int64         // probes sent
+	answers    int64         // answers received
+	rx, tx     int64         // WireGuard's byte counters for this peer
 }
 
 type agent struct {
@@ -134,19 +143,21 @@ type agent struct {
 	wg       *wgInterface
 	priv     wgtypes.Key
 
-	mu         sync.Mutex
-	peers      map[string]*peer // by node
-	observed   netip.AddrPort   // our public address, as the reflector saw it
-	reflector  netip.AddrPort
-	reflKey    wgtypes.Key
-	reflSince  time.Time
-	connected  bool
-	local      []netip.AddrPort // our interface addresses, as last registered
-	offset     time.Duration    // the backend's clock minus ours
-	warnings   []string         // conflicts with the machine (conflicts), checked every warnEvery
-	warnedAt   time.Time
-	tampered   string // what guardInterface last had to put back, shown for tamperedFor
-	tamperedAt time.Time
+	mu           sync.Mutex
+	peers        map[string]*peer // by node
+	observed     netip.AddrPort   // our public address, as the reflector saw it
+	reflector    netip.AddrPort
+	reflKey      wgtypes.Key
+	reflSince    time.Time
+	connected    bool
+	local        []netip.AddrPort // our interface addresses, as last registered
+	offset       time.Duration    // the backend's clock minus ours
+	warnings     []string         // conflicts with the machine (conflicts), checked every warnEvery
+	warnedAt     time.Time
+	tampered     string // what guardInterface last had to put back, shown for tamperedFor
+	tamperedAt   time.Time
+	repairs      int64 // how often guardInterface had to put the interface back
+	peersChanged bool  // a peer became blocked or answers again: report at once
 }
 
 // tamperedFor: how long the status says that the interface was changed from outside.
@@ -205,6 +216,7 @@ func (a *agent) run(ctx context.Context) error {
 	ctx, lost := context.WithCancelCause(ctx)
 	defer lost(nil)
 	go a.guardInterface(ctx, lost)
+	go a.probe(ctx)
 	backoff := time.Second
 	for ctx.Err() == nil {
 		start := time.Now()
@@ -230,21 +242,36 @@ func (a *agent) run(ctx context.Context) error {
 	return nil
 }
 
-// guardEvery: how often the agent checks that its interface is still as it set it up.
-var guardEvery = 5 * time.Second
+// guardEvery: how often the agent checks its interface even without a report from the kernel (a
+// safety net; normally it reacts to the kernel's reports at once).
+var guardEvery = 30 * time.Second
 
 // guardInterface keeps the interface as the mesh needs it: something else (NetworkManager, a
-// person with "ip link") may take it down or remove its address; the agent puts both back and
-// says so. If the interface is gone altogether, lost ends the mesh, and the agent starts it
-// again (a new interface, configured from scratch).
+// person with "ip link") may take it down or remove its address; the agent puts both back the
+// moment the kernel reports the change, and says so. If the interface is gone altogether, lost
+// ends the mesh, and the agent starts it again (a new interface, configured from scratch).
 func (a *agent) guardInterface(ctx context.Context, lost context.CancelCauseFunc) {
+	addr := netip.PrefixFrom(a.self.Address, a.prefix.Bits())
+	kick := make(chan struct{}, 1)
+	if i, err := net.InterfaceByName(a.cfg.Interface); err == nil {
+		go func() {
+			if err := watchLinks(ctx, i.Index, func() {
+				select {
+				case kick <- struct{}{}:
+				default:
+				}
+			}); err != nil {
+				log.Printf("mesh: no reports from the kernel about %s (%v); checking it every %v", a.cfg.Interface, err, guardEvery)
+			}
+		}()
+	}
 	t := time.NewTicker(guardEvery)
 	defer t.Stop()
-	addr := netip.PrefixFrom(a.self.Address, a.prefix.Bits())
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-kick:
 		case <-t.C:
 		}
 		fixed, err := repairInterface(a.cfg.Interface, addr)
@@ -259,10 +286,20 @@ func (a *agent) guardInterface(ctx context.Context, lost context.CancelCauseFunc
 			log.Printf("mesh: %s", msg)
 			a.mu.Lock()
 			a.tampered, a.tamperedAt = msg, time.Now()
+			a.repairs++
 			a.mu.Unlock()
 			a.writeStatus()
 		}
 	}
+}
+
+// takePeersChanged tells whether a peer's reachability changed since the last call.
+func (a *agent) takePeersChanged() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c := a.peersChanged
+	a.peersChanged = false
+	return c
 }
 
 func (a *agent) setConnected(v bool) {
@@ -327,7 +364,7 @@ func (a *agent) session(ctx context.Context) error {
 				a.reflect()
 			}
 			a.maintain(now)
-			if now.Sub(lastReport) > reportEvery {
+			if a.takePeersChanged() || now.Sub(lastReport) > reportEvery {
 				lastReport = now
 				rctx, c := context.WithTimeout(sctx, 10*time.Second)
 				err := b.Report(rctx, a.report())
@@ -802,6 +839,7 @@ func (a *agent) maintain(now time.Time) {
 		w, ok := byKey[wgtypes.Key(p.cert.WireGuard)]
 		if ok {
 			p.handshake = w.LastHandshakeTime
+			p.rx, p.tx = w.ReceiveBytes, w.TransmitBytes
 		}
 		if ok && !w.LastHandshakeTime.IsZero() && now.Sub(w.LastHandshakeTime) < handshakeLive {
 			if p.state != stateConnected {
@@ -896,7 +934,10 @@ func (a *agent) report() []PeerReport {
 	r := []PeerReport{}
 	for _, p := range a.sortedPeers() {
 		s := PeerReport{Node: p.node, State: p.state.name()}
-		if p.state == stateConnected {
+		switch {
+		case p.state == stateConnected && p.blocked:
+			s.State = stateUnreachable.name() // handshakes, but nothing gets through: not reachable
+		case p.state == stateConnected:
 			s.Path, s.Endpoint = p.path, p.endpoint
 		}
 		if !p.handshake.IsZero() {
@@ -928,6 +969,8 @@ type Status struct {
 	Peers     []PeerStatus `json:"peers"`
 	// Warnings: what on this machine gets in the way of the mesh (an overlapping network, Tailscale)
 	Warnings []string `json:"warnings,omitempty"`
+	// Repairs: how often the agent had to put its interface back (since the mesh started)
+	Repairs int64 `json:"repairs,omitempty"`
 }
 
 type PeerStatus struct {
@@ -939,6 +982,13 @@ type PeerStatus struct {
 	Endpoint  string    `json:"endpoint,omitempty"`
 	Handshake time.Time `json:"handshake,omitzero"`
 	Refused   string    `json:"refused,omitempty"`
+	// State "blocked": a live handshake, but probes get no answer; Problem says what that means
+	Problem string  `json:"problem,omitempty"`
+	RTT     float64 `json:"rtt,omitempty"`     // seconds, the probes' smoothed round trip
+	Probes  int64   `json:"probes,omitempty"`  // probes sent to it
+	Answers int64   `json:"answers,omitempty"` // answers received
+	RxBytes int64   `json:"rxBytes,omitempty"` // WireGuard: received from it
+	TxBytes int64   `json:"txBytes,omitempty"` // WireGuard: sent to it
 }
 
 // checkConflicts looks for what gets in the way of the mesh on this machine and logs what is
@@ -970,17 +1020,24 @@ func (a *agent) writeStatus() {
 	if time.Since(a.warnedAt) > warnEvery {
 		a.checkConflicts()
 	}
-	s.Warnings = a.warnings
+	s.Warnings, s.Repairs = a.warnings, a.repairs
 	if a.tampered != "" && time.Since(a.tamperedAt) < tamperedFor {
 		s.Warnings = append(slices.Clone(a.warnings), a.tampered)
 	}
 	for _, p := range a.sortedPeers() {
-		ps := PeerStatus{Node: p.node, State: strings.ToLower(p.state.String()), Refused: p.refused, Handshake: p.handshake}
+		ps := PeerStatus{Node: p.node, State: strings.ToLower(p.state.String()), Refused: p.refused, Handshake: p.handshake,
+			Probes: p.probes, Answers: p.answers, RxBytes: p.rx, TxBytes: p.tx}
 		if p.refused == "" {
 			ps.Role, ps.Address = p.cert.Role, p.cert.Address.String()
 		}
 		if p.state == stateConnected {
 			ps.Path, ps.Endpoint = p.path, p.endpoint
+			if p.rtt > 0 && !p.blocked {
+				ps.RTT = p.rtt.Seconds()
+			}
+			if p.blocked {
+				ps.State, ps.Problem = "blocked", blockedText
+			}
 		}
 		s.Peers = append(s.Peers, ps)
 	}

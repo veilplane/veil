@@ -48,6 +48,7 @@ const (
 	wgKey        = "wg.key"        // WireGuard private key (base64)
 	meshFile     = "mesh.json"     // address and certificate in the mesh
 	apiCAFile    = "api-ca.pem"    // the backend's CA from an invite file
+	leftMarker   = "left"          // written by "veil leave": the state may go (the package's purge removes it then)
 )
 
 // ---------------------------------------------------------------- agent.json
@@ -68,9 +69,15 @@ type Config struct {
 	// and the value changes.
 	Join string `json:"join,omitempty"`
 	// Allow: the features the backend may switch on. Default: all ("proxy", "mesh").
-	Allow *[]string   `json:"allow,omitempty"`
-	Proxy ProxyConfig `json:"proxy"`
-	Mesh  MeshConfig  `json:"mesh"`
+	Allow   *[]string     `json:"allow,omitempty"`
+	Proxy   ProxyConfig   `json:"proxy"`
+	Mesh    MeshConfig    `json:"mesh"`
+	Metrics MetricsConfig `json:"metrics"`
+}
+
+// MetricsConfig: the agent's Prometheus metrics.
+type MetricsConfig struct {
+	Listen string `json:"listen,omitempty"` // default 127.0.0.1:9391, "off": none
 }
 
 type ProxyConfig struct {

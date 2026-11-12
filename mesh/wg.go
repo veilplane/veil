@@ -9,6 +9,9 @@
 package mesh
 
 import (
+	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +20,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -274,4 +278,72 @@ func repairInterface(name string, address netip.Prefix) (string, error) {
 		fixed = append(fixed, "it was taken down")
 	}
 	return strings.Join(fixed, ", "), nil
+}
+
+// The netlink multicast groups for link and IPv4 address changes (linux/rtnetlink.h); Go's
+// syscall package does not name them.
+const (
+	rtmgrpLink       = 0x1
+	rtmgrpIPv4IfAddr = 0x10
+)
+
+// watchLinks calls changed whenever the kernel reports a change of the interface with this index:
+// it went up or down, was deleted, or an address came or went (netlink, the route groups for
+// links and IPv4 addresses). It also calls it when the kernel dropped reports (a full socket
+// buffer), since a change may be among them. It returns when ctx ends, or with an error if it
+// cannot listen.
+func watchLinks(ctx context.Context, index int, changed func()) error {
+	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC|syscall.SOCK_NONBLOCK, syscall.NETLINK_ROUTE)
+	if err != nil {
+		return fmt.Errorf("netlink: %v", err)
+	}
+	if err := syscall.Bind(fd, &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK,
+		Groups: rtmgrpLink | rtmgrpIPv4IfAddr}); err != nil {
+		syscall.Close(fd)
+		return fmt.Errorf("netlink: %v", err)
+	}
+	f := os.NewFile(uintptr(fd), "netlink") // non-blocking: reads go through Go's poller, Close ends them
+	stop := context.AfterFunc(ctx, func() { f.Close() })
+	defer stop()
+	buf := make([]byte, 1<<16)
+	for {
+		n, err := f.Read(buf)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if errors.Is(err, syscall.ENOBUFS) {
+				changed() // reports were lost: look anyway
+				continue
+			}
+			f.Close()
+			return fmt.Errorf("netlink: %v", err)
+		}
+		msgs, err := syscall.ParseNetlinkMessage(buf[:n])
+		if err != nil {
+			continue
+		}
+		for _, m := range msgs {
+			if linkIndex(m) == index {
+				changed()
+				break
+			}
+		}
+	}
+}
+
+// linkIndex is the interface a link or address report is about (-1 for other reports). Both
+// headers (ifinfomsg, ifaddrmsg) carry the index at byte 4.
+func linkIndex(m syscall.NetlinkMessage) int {
+	switch m.Header.Type {
+	case syscall.RTM_NEWLINK, syscall.RTM_DELLINK:
+		if len(m.Data) >= syscall.SizeofIfInfomsg {
+			return int(int32(binary.NativeEndian.Uint32(m.Data[4:8])))
+		}
+	case syscall.RTM_NEWADDR, syscall.RTM_DELADDR:
+		if len(m.Data) >= syscall.SizeofIfAddrmsg {
+			return int(binary.NativeEndian.Uint32(m.Data[4:8]))
+		}
+	}
+	return -1
 }

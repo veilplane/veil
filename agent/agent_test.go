@@ -9,7 +9,9 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -118,7 +120,9 @@ func (f *fakeBackend) serve(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, 403, "device unknown or revoked")
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"token": "vt1." + node, "expiresAt": time.Now().Add(15 * time.Minute)})
+		exp := time.Now().Add(15 * time.Minute).Truncate(time.Second)
+		json.NewEncoder(w).Encode(map[string]any{"token": "vt1." + node, "expiresAt": exp,
+			"attestation": base64.StdEncoding.EncodeToString(ed25519.Sign(testAttestationKey, attestationMessage(str("cluster"), node, nonce, exp)))})
 	case "/agent/v1/config":
 		node := caller()
 		if node == "" || node == "-" {
@@ -426,12 +430,18 @@ func TestRevokedNodeStopsAndJoinsAgainWithANewJoin(t *testing.T) {
 	if err := Leave(context.Background(), n.paths, "test"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(n.paths.state(leftMarker)); err != nil {
+		t.Fatalf("no marker after leaving: %v", err)
+	}
 	n.wait("revoked", func(s *Status) bool { return s.State == "revoked" && s.Features["proxy"].State == "off" })
 	f.set(func() { f.kinds["vp1.again"] = "bootstrap" })
 	os.Remove(n.paths.state(masterKey)) // a new first node creates a new key
 	n.writeConfig(map[string]any{"api": srv.URL, "node": "cp1", "join": "vp1.again",
 		"proxy": map[string]any{"listen": "127.0.0.1:0", "opsListen": "off"}})
 	n.wait("joined again", func(s *Status) bool { return s.State == "running" && s.Features["proxy"].State != "off" })
+	if _, err := os.Stat(n.paths.state(leftMarker)); err == nil {
+		t.Fatal("the marker survived joining again")
+	}
 }
 
 func TestSecondAgentOnTheSameStateIsRefused(t *testing.T) {
@@ -493,5 +503,174 @@ func TestStatusWithoutRights(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(p.State, 0o700) })
 	if _, err := ReadStatus(p); err == nil || !strings.Contains(err.Error(), "sudo veil status") {
 		t.Fatalf("ReadStatus: %v", err)
+	}
+}
+
+// The metrics address serves the agent, its features and the mesh with every peer, in
+// Prometheus' text format; "off" closes it.
+func TestMetrics(t *testing.T) {
+	a := &Agent{cfg: &Config{Metrics: MetricsConfig{Listen: "127.0.0.1:0"}}, running: map[string]*feature{}}
+	a.status = Status{Version: "v1.2.3", State: "running", Cluster: "home", Node: "fedora", Role: "control-plane",
+		Features: map[string]*FeatureStatus{"proxy": {Wanted: true, Allowed: true, State: "running"},
+			"mesh": {Wanted: true, Allowed: true, State: "running", Mesh: &mesh.Status{Interface: "veil0", Address: "10.200.0.1",
+				Mode: "kernel", Backend: true, Repairs: 2, Warnings: []string{"x"}, Peers: []mesh.PeerStatus{
+					{Node: "rocky-1", State: "connected", Path: "lan", RTT: 0.0012, Probes: 10, Answers: 9, RxBytes: 1000, TxBytes: 2000,
+						Handshake: time.Unix(1700000000, 0)},
+					{Node: "worker-2", State: "blocked"}}}}}}
+	a.status.Backend.Connected = true
+	a.ensureMetrics()
+	t.Cleanup(a.stopMetrics)
+	resp, err := http.Get("http://" + a.metrics.bound + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	out := string(raw)
+	for _, want := range []string{
+		`veil_agent_info{version="v1.2.3",node="fedora",cluster="home",role="control-plane"} 1`,
+		`veil_agent_state{state="running"} 1`,
+		`veil_agent_state{state="error"} 0`,
+		`veil_agent_backend_connected 1`,
+		`veil_agent_feature_state{feature="mesh",state="running"} 1`,
+		`veil_mesh_up 1`,
+		`veil_mesh_interface_repairs_total 2`,
+		`veil_mesh_peers{state="blocked"} 1`,
+		`veil_mesh_peer_up{peer="rocky-1"} 1`,
+		`veil_mesh_peer_up{peer="worker-2"} 0`,
+		`veil_mesh_peer_path{peer="rocky-1",path="lan"} 1`,
+		`veil_mesh_peer_rtt_seconds{peer="rocky-1"} 0.0012`,
+		`veil_mesh_peer_receive_bytes_total{peer="rocky-1"} 1000`,
+		`veil_mesh_peer_last_handshake_timestamp_seconds{peer="rocky-1"} 1.7e+09`,
+	} {
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("missing %s", want)
+		}
+	}
+	// each metric's HELP and TYPE exactly once
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "# TYPE ") && strings.Count(out, l+"\n") != 1 {
+			t.Errorf("twice: %s", l)
+		}
+	}
+	if resp.Header.Get("Content-Type") == "" || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain; version=0.0.4") {
+		t.Errorf("content type %q", resp.Header.Get("Content-Type"))
+	}
+	if os.Getenv("VEIL_METRICS_OUT") != "" {
+		os.WriteFile(os.Getenv("VEIL_METRICS_OUT"), raw, 0o644)
+	}
+
+	addr := a.metrics.bound
+	a.cfg.Metrics.Listen = "off"
+	a.ensureMetrics()
+	if _, err := http.Get("http://" + addr + "/metrics"); err == nil {
+		t.Fatal("still served after off")
+	}
+}
+
+// The tests run like a development build: fake backends on 127.0.0.1, a CA of their own, and an
+// attestation key of their own that the fake backends sign tokens with.
+var testAttestationKey = func() ed25519.PrivateKey {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	devMode = true
+	attestationKeys = []string{base64.StdEncoding.EncodeToString(pub)}
+	return priv
+}()
+
+// A release build talks to Veilplane's backend only: https on a Veilplane name, the system's
+// CAs, every redirect too, gRPC with TLS on a Veilplane name, and tokens with Veilplane's
+// signature over the agent's nonce.
+func TestOnlyVeilplanesBackend(t *testing.T) {
+	devMode = false
+	t.Cleanup(func() { devMode = true })
+
+	for _, ok := range []string{"https://api.veilplane.com", "https://eu-api.veilplane.com", "https://API.VEILPLANE.COM:443"} {
+		if _, err := newAPI(ok, "", "test"); err != nil {
+			t.Errorf("%s refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"http://api.veilplane.com", "https://api.example.com", "https://veilplane.com.evil.net",
+		"https://evilveilplane.com", "https://127.0.0.1:8443"} {
+		if _, err := newAPI(bad, "", "test"); err == nil || !strings.Contains(err.Error(), "Veilplane's backend only") {
+			t.Errorf("%s accepted: %v", bad, err)
+		}
+	}
+	if _, err := newAPI("https://api.veilplane.com", "/etc/veil/ca.pem", "test"); err == nil || !strings.Contains(err.Error(), "development builds only") {
+		t.Errorf("apiCa accepted: %v", err)
+	}
+	for _, g := range []struct {
+		addr string
+		tls  bool
+		ok   bool
+	}{{"grpc.veilplane.com:443", true, true}, {"eu-grpc.veilplane.com:443", true, true}, {"grpc.veilplane.com:443", false, false},
+		{"grpc.example.com:443", true, false}, {"127.0.0.1:2379", true, false}} {
+		if err := checkGRPC(g.addr, g.tls); (err == nil) != g.ok {
+			t.Errorf("gRPC %s tls=%v: %v", g.addr, g.tls, err)
+		}
+	}
+
+	// a redirect away from Veilplane is not followed
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	defer foreign.Close()
+	a, _ := newAPI("https://api.veilplane.com", "", "test")
+	req, _ := http.NewRequest("POST", foreign.URL+"/agent/v1/join", nil)
+	if err := a.http.CheckRedirect(req, []*http.Request{{}}); err == nil {
+		t.Error("a redirect to another host is followed")
+	}
+
+	// attestations: Veilplane's key over exactly this token
+	exp := time.Unix(1800000000, 0)
+	sig := base64.StdEncoding.EncodeToString(ed25519.Sign(testAttestationKey, attestationMessage("c1", "cp-1", "n0nce", exp)))
+	if err := verifyAttestation("c1", "cp-1", "n0nce", exp, sig); err != nil {
+		t.Fatalf("a valid attestation: %v", err)
+	}
+	_, other, _ := ed25519.GenerateKey(nil)
+	forged := base64.StdEncoding.EncodeToString(ed25519.Sign(other, attestationMessage("c1", "cp-1", "n0nce", exp)))
+	for name, c := range map[string][5]string{
+		"none":          {"c1", "cp-1", "n0nce", "", ""},
+		"another key":   {"c1", "cp-1", "n0nce", forged, ""},
+		"another nonce": {"c1", "cp-1", "replay", sig, ""},
+		"another node":  {"c1", "cp-2", "n0nce", sig, ""},
+	} {
+		if err := verifyAttestation(c[0], c[1], c[2], exp, c[3]); !errors.Is(err, errNotVeilplane) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if err := verifyAttestation("c1", "cp-1", "n0nce", exp.Add(time.Hour), sig); !errors.Is(err, errNotVeilplane) {
+		t.Errorf("another expiry: %v", err)
+	}
+	saved := attestationKeys
+	attestationKeys = nil
+	if err := verifyAttestation("c1", "cp-1", "n0nce", exp, sig); err == nil || !strings.Contains(err.Error(), "no Veilplane attestation key") {
+		t.Errorf("without keys: %v", err)
+	}
+	attestationKeys = saved
+}
+
+// A backend that answers tokens without (or with a forged) attestation gets no further than that.
+func TestTokenWithoutAttestationIsRefused(t *testing.T) {
+	_, other, _ := ed25519.GenerateKey(nil)
+	for name, attest := range map[string]func(cluster, node, nonce string, exp time.Time) string{
+		"without": func(string, string, string, time.Time) string { return "" },
+		"forged": func(c, n, nonce string, exp time.Time) string {
+			return base64.StdEncoding.EncodeToString(ed25519.Sign(other, attestationMessage(c, n, nonce, exp)))
+		},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var b map[string]any
+			json.NewDecoder(r.Body).Decode(&b)
+			exp := time.Now().Add(time.Minute).Truncate(time.Second)
+			json.NewEncoder(w).Encode(map[string]any{"token": "vt1.x", "expiresAt": exp,
+				"attestation": attest(b["cluster"].(string), b["node"].(string), b["nonce"].(string), exp)})
+		}))
+		a, err := newAPI(srv.URL, "", "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, key, _ := ed25519.GenerateKey(nil)
+		if _, err := a.token(context.Background(), "c1", "cp-1", key); !errors.Is(err, errNotVeilplane) {
+			t.Errorf("%s attestation: %v", name, err)
+		}
+		srv.Close()
 	}
 }

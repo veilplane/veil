@@ -75,6 +75,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Veilplane's attestation key is built in (without it, veil would trust no backend)
+        run: go test -tags release -run TestProductionKeys ./agent
+
       - name: Build static binaries
         env:
           VERSION: ${{ github.ref_name }}

@@ -231,17 +231,27 @@ nodes, with a matrix of who reaches whom.
 
 | Status | Meaning, and what helps |
 |---|---|
-| `connected lan` / `connected direct` | fine |
+| `connected lan` / `connected direct` | fine; the number after it is the round trip of the probes |
+| `blocked` | the WireGuard handshake works, but probes over the mesh get no answer: something on one of the two machines drops mesh traffic after WireGuard decrypted it (a firewall on `veil0`, Tailscale: see "Conflicts with the machine"). Reported to the backend as `unreachable` |
 | `trying` | still searching; hole punching takes up to a few attempts, 35 s apart |
 | `unreachable` | no path: usually both nodes behind symmetric NAT (mobile networks, some corporate networks) or UDP blocked. A node with a public address, or a forwarded UDP port on one of the two, helps. |
 | `refused` | the backend listed a member without a valid certificate of this cluster. The agent ignores it. If you did not invite it, report it. |
 | backend not connected | the mesh keeps working with what it knows; new members and address changes wait |
 | `! ...` under the mesh line | something on this machine gets in the way, see below |
 
-**The interface is the agent's.** Every 5 seconds the agent checks that `veil0` exists, is up and
-has its address. If something else took it down or removed the address (NetworkManager, a
-person with `ip`), the agent puts it back and says so in `veil status` for ten minutes; if the
-interface is gone, the mesh starts again with a new one. The packages keep NetworkManager away
+**Probes.** A handshake proves that two nodes can exchange encrypted packets, not that the
+packets arrive: a firewall can drop them after WireGuard decrypted them. So every node answers
+small UDP probes on its mesh address (port 51819) and asks every connected peer every 5 seconds.
+That tests the whole way, through both machines' firewalls, and measures the round trip. A peer
+with a live handshake that has not answered for 20 seconds is `blocked`, and the backend hears
+`unreachable` at once, not at the next regular report. Allow UDP 51819 on `veil0` (a trusted
+zone does).
+
+**The interface is the agent's.** The agent listens to the kernel's reports about `veil0`
+(netlink): the moment something else takes it down or removes its address (NetworkManager, a
+person with `ip`), it puts it back and says so in `veil status` for ten minutes; if the interface
+is gone, the mesh starts again with a new one. A check every 30 seconds catches what a lost
+report would miss. The packages keep NetworkManager away
 from it (a udev rule, `/usr/lib/udev/rules.d/85-veil.rules`; NixOS: `networking.networkmanager.unmanaged`),
 so desktops do not list it as a VPN to switch off.
 

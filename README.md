@@ -25,7 +25,7 @@ customer's machines. License: FSL-1.1-ALv2 (section 15).
 1. [Overview](#1-overview)
 2. [Installing and running](#2-installing-and-running)
 3. [Configuration: agent.json](#3-configuration-agentjson)
-4. [The status file](#4-the-status-file)
+4. [The status file and metrics](#4-the-status-file-and-metrics)
 5. [Joining a cluster](#5-joining-a-cluster)
 6. [Talking to the backend](#6-talking-to-the-backend)
 7. [What the backend can and cannot do](#7-what-the-backend-can-and-cannot-do)
@@ -112,8 +112,7 @@ echo '{"join": "vp1.mzxw6ytboi3tcnzrgq2tmmzz"}' > /etc/veil/agent.json   # the j
 systemctl enable --now veil
 ```
 
-An upgrade restarts a running agent; removing the package stops it and leaves its state in
-`/var/lib/veil`.
+An upgrade restarts a running agent (section "Updating and removing" below has the rest).
 
 On **NixOS**, the flake has the package and a module:
 
@@ -154,6 +153,39 @@ the Kubernetes cluster: the API server cannot start without the etcd proxy. The 
 
 Only one agent can use a state directory at a time (it holds a lock on the directory).
 
+### Updating and removing
+
+**Updating** is the system's package manager: `apt update && apt upgrade` or `dnf upgrade`. The
+package restarts a running agent; Kubernetes keeps running meanwhile (the API server waits for
+its etcd for a moment). The repository's metadata is valid for an hour, so `dnf` sees a new
+release within that time; `dnf upgrade --refresh` looks at once. Without a package: replace
+`/usr/bin/veil` and `systemctl restart veil`. On NixOS: a new tag in the flake's input.
+
+**Removing the package** (`apt remove veil`, `dnf remove veil`) stops and disables the agent and
+nothing else: `/etc/veil` and `/var/lib/veil` stay, so installing it again carries on as before.
+`apt purge veil` also deletes `/etc/veil` and the repository entry of `install.sh` (unless
+veilctl is still installed), and `/var/lib/veil`, but the last one only if the node left the
+cluster with `veil leave` first (or never joined). Otherwise it stays, with a note: it holds the
+node's identity and, on a control plane node, the cluster's master key, perhaps its only copy.
+rpm has no purge; there, delete these by hand (below).
+
+**Removing a node completely**, in this order:
+
+1. Kubernetes first, while the node is still a member: drain it and remove it from the cluster
+   (`kubectl drain <node> --ignore-daemonsets --delete-emptydir-data`, `kubectl delete node
+   <node>`), then uninstall it (k3s: `k3s-uninstall.sh` or `k3s-agent-uninstall.sh`). A control
+   plane node's API server needs the etcd proxy until it is stopped.
+2. `veil leave`: the backend refuses the node from then on and the agent stops. On the **last
+   control plane node** of a cluster, first copy `/var/lib/veil/master.key` somewhere safe if the
+   cluster's data should stay readable: without it, nobody can decrypt it, Veilplane neither.
+3. Remove the package: `apt purge veil`, or `dnf remove veil` and then
+   `rm -rf /etc/veil /var/lib/veil`.
+4. What is left: the repository entry if nothing else uses it (`/etc/apt/sources.list.d/veil.list`
+   and `/etc/apt/keyrings/veil.asc`, or `/etc/yum.repos.d/veil.repo`), a firewall rule you opened
+   for the mesh port, and on your own computer veilctl's session (`~/.config/veilctl`).
+
+The mesh interface `veil0` disappears when the agent stops.
+
 ## 3. Configuration: agent.json
 
 ```json
@@ -162,7 +194,8 @@ Only one agent can use a state directory at a time (it holds a lock on the direc
   "node": "cp-1",
   "allow": ["proxy", "mesh"],
   "proxy": { "listen": "127.0.0.1:2379", "opsListen": "127.0.0.1:9390" },
-  "mesh": { "interface": "veil0", "mode": "auto" }
+  "mesh": { "interface": "veil0", "mode": "auto" },
+  "metrics": { "listen": "127.0.0.1:9391" }
 }
 ```
 
@@ -171,8 +204,8 @@ Every field is optional; an empty file (or none) is valid and leaves the node wa
 
 | Field | Default | Meaning |
 |---|---|---|
-| `api` | `https://api.veilplane.com`, or the invite file's | the agent API to join at. The backend may send the join on to the cluster's region and name that region's API in its answer; the agent stores it in `identity.json` and uses it from then on |
-| `apiCa` | the system's CAs, or the invite file's | a PEM file with the CA of the backend's TLS certificates (development, own deployments) |
+| `api` | `https://api.veilplane.com`, or the invite file's | the agent API to join at, always `https://` and a name under `veilplane.com` (section 6). The backend may send the join on to the cluster's region and name that region's API in its answer; the agent stores it in `identity.json` and uses it from then on |
+| `apiCa` | the system's CAs | a PEM file with the CA of the backend's TLS certificates. Development builds only (section 12); a released agent refuses to start with it |
 | `node` | the host name, or the invite file's | the node's name in the cluster: lower case letters, digits, `-` and `.` |
 | `join` | | a join code (`vp1....`) or an invite file (a path, relative to the config directory) |
 | `allow` | `["proxy", "mesh"]` | the features the backend may switch on. `[]` refuses everything. |
@@ -185,16 +218,18 @@ Every field is optional; an empty file (or none) is valid and leaves the node wa
 | `mesh.port` | random, 51820-52819, kept | the WireGuard UDP port |
 | `mesh.mode` | `auto` | `kernel`, `userspace` (wireguard-go) or `auto` (kernel if available) |
 | `mesh.mtu` | `1420` | |
+| `metrics.listen` | `127.0.0.1:9391` | the agent's Prometheus metrics, `/metrics` (section 4); `"off"` disables |
 
 Unknown fields are an error, so that a typo (`"alow"`) does not silently allow everything. The
 agent notices changes to the file by itself, within a second: a changed `allow` starts or stops
-features, a changed `proxy` or `mesh` section restarts that feature.
+features, a changed `proxy` or `mesh` section restarts that feature, a changed `metrics.listen`
+moves the metrics address.
 
 `join` is used once. After joining, the node's identity is in the state directory and `join` is
 ignored, until the node is revoked: then a **new** `join` value makes the agent forget the old
 identity and join again (section 5).
 
-## 4. The status file
+## 4. The status file and metrics
 
 `/var/lib/veil/veil.lock` is what the agent actually runs, as JSON, rewritten atomically on
 every change and at least every 30 seconds. It is how veilctl, monitoring or a person looks at
@@ -234,6 +269,43 @@ the agent without talking to it; `veil status` prints it for people.
 
 `updated` older than a minute, or a `pid` that does not run, means the agent is not running.
 The file holds nothing secret (mode 644).
+
+### Metrics (Prometheus, Grafana)
+
+Every node, workers too, serves its metrics on `http://127.0.0.1:9391/metrics` (Prometheus'
+text format; `metrics.listen` in `agent.json` moves it or turns it off). It holds what the
+status file holds, as numbers, plus the etcd proxy's own series (the same as on the proxy's ops
+address, `127.0.0.1:9390/metrics`):
+
+| Metric | |
+|---|---|
+| `veil_agent_info{version,node,cluster,role}` | always 1: join on `instance` to name the node in queries |
+| `veil_agent_state{state}`, `veil_agent_feature_state{feature,state}` | 1 for the current state |
+| `veil_agent_backend_connected`, `veil_agent_backend_last_contact_timestamp_seconds`, `veil_agent_token_expiry_timestamp_seconds` | the connection to the backend |
+| `veil_mesh_up`, `veil_mesh_warnings`, `veil_mesh_interface_repairs_total` | the mesh on this node, what gets in its way, how often its interface had to be put back |
+| `veil_mesh_peers{state}`, `veil_mesh_peer_up{peer}`, `veil_mesh_peer_state{peer,state}`, `veil_mesh_peer_path{peer,path}` | every peer: `connected`, `blocked` (a live handshake, but probes get no answer), `trying`, `unreachable`, `refused` |
+| `veil_mesh_peer_rtt_seconds{peer}`, `veil_mesh_peer_probes_total`, `veil_mesh_peer_probe_answers_total` | the probes' round trip and losses (mesh/README.md, section 8) |
+| `veil_mesh_peer_receive_bytes_total`, `veil_mesh_peer_transmit_bytes_total`, `veil_mesh_peer_last_handshake_timestamp_seconds` | WireGuard's counters per peer |
+| `veil_replica_revision`, `veil_replica_failed`, `veil_grpc_requests_total{method,code}`, `veil_watch_streams`, ... | the etcd proxy (control plane nodes) |
+
+The address is local by default: the series name nodes and peers. For a Prometheus elsewhere,
+listen on the mesh address (`"listen": "10.200.0.1:9391"`, reachable from the cluster's other
+nodes only) or on all addresses behind a firewall. In Kubernetes, a scrape job for the nodes:
+
+```yaml
+scrape_configs:
+  - job_name: veil
+    kubernetes_sd_configs: [{ role: node }]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_node_address_InternalIP]
+        target_label: __address__
+        replacement: $1:9391
+```
+
+**Grafana**: `grafana/veil.json` (installed as `/usr/share/doc/veil/grafana-dashboard.json`) is a
+dashboard for all of it: nodes and their state, the round trips and losses between nodes, mesh
+traffic, revisions and etcd requests per node, with filters for cluster and node. Import it in
+Grafana (Dashboards, New, Import) and choose the Prometheus data source.
 
 ## 5. Joining a cluster
 
@@ -290,6 +362,17 @@ Nothing depends on TLS client certificates: TLS checks only the server's certifi
 end at a proxy in front of the backend. A revoked node is refused at once, not only when its
 token expires, and its agent stops everything.
 
+**Only Veilplane's backend.** A released agent works with Veilplane's backend and no other.
+Every access token comes with an attestation: Veilplane's Ed25519 signature over the cluster,
+the node, a random nonce the agent chose for this request and the token's expiry. The public
+half of that key is built into veil (`productionKeys` in `agent/attest.go`); the private half is
+only on Veilplane's backend. Without a valid attestation the agent takes no token, and nothing
+runs. Pointing `api.veilplane.com` at another server (`/etc/hosts` and a CA of one's own) does
+not help: that server cannot sign. On top, the agent API must be `https://` under
+`veilplane.com`, redirects too, the gRPC address a name under `veilplane.com` with TLS, and only
+the system's CAs are trusted (`apiCa` and the CA in invite files are ignored or refused).
+Development builds (section 12) drop these checks and trust a public development key instead.
+
 Requests that wait for changes return after 50 seconds at most, so proxies on the way do not
 cut them off. One exception to "through any proxy": the mesh learns a node's public address
 from UDP packets, which go to an address of their own.
@@ -324,7 +407,8 @@ In the state directory (`/var/lib/veil`, mode 700):
 | `proxy.state` | 600 | the etcd proxy's verified checkpoints |
 | `wg.key` | 600 | the WireGuard private key (base64) |
 | `mesh.json` | 600 | mesh address, network, certificate, the public half of the mesh key, port |
-| `api-ca.pem` | 644 | the backend's CA from an invite file, if it had one |
+| `api-ca.pem` | 644 | the backend's CA from an invite file, if it had one (development builds) |
+| `left` | 600 | written by `veil leave`: the node left, its state may go (`apt purge` deletes it then) |
 | `veil.lock` | 644 | the status file (section 4) |
 
 Whoever has a copy of `master.key` can decrypt the cluster's data as the backend stores it, and
@@ -417,6 +501,7 @@ Passkeys can be listed and deleted here; creating one needs a browser (the dashb
 | `agent/` | the agent: `agent.go` (loop, features, status), `api.go` (agent API, tokens, gRPC connection), `files.go` (agent.json, keys, invite files), `tools.go` (invite, leave, status) |
 | `proxy/` | the etcd proxy, with its own README |
 | `mesh/` | the mesh, with its own README |
+| `grafana/veil.json` | the Grafana dashboard for the metrics (section 4) |
 | `packaging/` | the systemd unit; deb and rpm of veil and veilctl: nfpm configurations, install and removal scripts, `build-packages.sh`; `build-repo.sh` for the apt and dnf repository; `install.sh`, served by it |
 | `flake.nix`, `nix/` | the Nix package and the NixOS module; `nix/update-vendor-hash.sh` after a change to the Go dependencies |
 
@@ -430,12 +515,23 @@ go build -o veil ./cmd/veil
 go build -o veilctl ./cmd/veilctl
 go test ./...                                                 # unit tests
 E2E_ETCD_DIR=/path/to/etcd-release go test -race ./...        # + the proxy's attack tests against a real etcd
+go build -tags veildev -o veil ./cmd/veil                     # development build (below)
+go test -tags release -run TestProductionKeys ./agent         # fails until the production key is built in
 ```
+
+**Development builds.** A plain build only works with Veilplane's backend (section 6). To run
+the agent against a backend on your own machine, build it with `-tags veildev` (`agent/dev.go`):
+it then talks to any address, plain HTTP and gRPC without TLS included, takes `apiCa` and the CA
+in invite files, and trusts the development attestation key, whose private half is public on
+purpose (the backend's tests use it). Never ship such a build. Released binaries, packages and
+the Nix package are built without the tag, and the release workflow first checks that a
+production key is built in and that it is not the development key.
 
 **Unit tests** (`agent/`) run agents against a fake backend: joining with a code, an invite and
 a worker invite (and that a used invite gives nothing), the allowlist (also changed while
 running), the backend switching a feature off within the long poll, revocation and joining
-again with a new code, the status report, one agent per state directory, unknown fields in
+again with a new code (and the `left` marker), the attestation (a token without it, or a backend
+outside `veilplane.com`, is refused), the metrics, the status report, one agent per state directory, unknown fields in
 `agent.json`. veilctl's tests (`ctl/`) run it against a fake management API: signing in (the
 session kept 0600), tables and JSON, clusters by name and typos, features, join codes on stdout,
 confirmation before deleting, API tokens, usage errors, help, completion.
@@ -486,6 +582,9 @@ The repository needs these secrets for a release:
 |---|---|
 | `PACKAGES_GPG_KEY` | the package key: an armored GPG private key (`gpg --armor --export-secret-keys KEYID`). Without it the release fails: packages are only published signed. |
 | `PACKAGES_GPG_PASSPHRASE` | its passphrase |
+
+No secret is needed for the attestation: its public key is in the source (`productionKeys` in
+`agent/attest.go`). A release fails while that list is empty.
 
 **Package repository.** After every stable release, `packages.yml` rebuilds the apt and dnf
 repository at `https://packages.veilplane.com` from the newest ten stable releases

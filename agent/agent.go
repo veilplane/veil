@@ -110,6 +110,8 @@ type Agent struct {
 	conn     *grpc.ClientConn
 	connKey  string
 	running  map[string]*feature
+	metrics  *metricsServer // metrics.go
+	proxy    *proxy.Proxy   // the running proxy, for the metrics
 	lastJoin time.Time
 	joinTry  string // agent.json's stamp at the last join attempt
 }
@@ -186,6 +188,7 @@ func (a *Agent) loop(ctx context.Context) error {
 				}
 				a.cfg, a.cfgStamp = cfg, stamp
 			}
+			a.ensureMetrics()
 		}
 		if a.cfg != nil {
 			// enrolled? (and not revoked)
@@ -224,6 +227,7 @@ func (a *Agent) loop(ctx context.Context) error {
 			a.status.State = "stopped"
 			a.mu.Unlock()
 			a.stopAll()
+			a.stopMetrics()
 			a.writeLock()
 			return nil
 		case ev := <-events:
@@ -422,7 +426,7 @@ func (a *Agent) join(ctx context.Context) (*Identity, error) {
 		return nil, fmt.Errorf("the invite is for node %s, agent.json says %s", inv.Node, node)
 	}
 	caFile := a.cfg.APICA
-	if caFile == "" && inv != nil && inv.APICA != "" {
+	if caFile == "" && inv != nil && inv.APICA != "" && devMode { // an invite's CA: development builds only
 		caFile = a.paths.state(apiCAFile)
 		if err := writeFileAtomic(caFile, []byte(inv.APICA), 0o644); err != nil {
 			return nil, err
@@ -469,6 +473,7 @@ func (a *Agent) join(ctx context.Context) (*Identity, error) {
 	if err := writeJSON(a.paths.state(identityFile), id, 0o600); err != nil {
 		return nil, err
 	}
+	os.Remove(a.paths.state(leftMarker)) // joined again: the state matters again
 	log.Printf("joined cluster %s as %s (%s)", j.Cluster, j.Node, j.Role)
 	return id, nil
 }
@@ -775,6 +780,9 @@ func (a *Agent) runProxy(ctx context.Context, fs *FeatureStatus) {
 			continue
 		}
 		log.Printf("proxy: serving etcd on %s", p.Addr())
+		a.mu.Lock()
+		a.proxy = p
+		a.mu.Unlock()
 		for ctx.Err() == nil {
 			a.mu.Lock()
 			fs.Revision = p.Revision()
@@ -789,6 +797,9 @@ func (a *Agent) runProxy(ctx context.Context, fs *FeatureStatus) {
 			a.mu.Unlock()
 			sleep(ctx, tick)
 		}
+		a.mu.Lock()
+		a.proxy = nil
+		a.mu.Unlock()
 		p.Shutdown()
 		return
 	}

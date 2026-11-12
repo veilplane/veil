@@ -49,10 +49,13 @@ contents:
     dst: /usr/share/doc/veil/NOTICE.md
   - src: README.md
     dst: /usr/share/doc/veil/README.md
+  - src: grafana/veil.json
+    dst: /usr/share/doc/veil/grafana-dashboard.json
 
 scripts:
   postinstall: packaging/postinstall.sh
   preremove: packaging/preremove.sh
+  postremove: packaging/postremove.sh
 
 overrides:
   deb:

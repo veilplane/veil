@@ -83,13 +83,25 @@ func newAPI(base, caFile, version string) (*api, error) {
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return nil, fmt.Errorf("the API address must be https://host[:port] (http only for development): %q", base)
 	}
+	if err := checkAPI(u); err != nil {
+		return nil, err
+	}
+	if err := checkCA(caFile); err != nil {
+		return nil, err
+	}
 	roots, err := loadRoots(caFile)
 	if err != nil {
 		return nil, err
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
-	return &api{base: strings.TrimRight(base, "/"), roots: roots, http: &http.Client{Transport: tr}, version: version}, nil
+	client := &http.Client{Transport: tr, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("too many redirects")
+		}
+		return checkAPI(req.URL) // the region's API (307), still Veilplane's
+	}}
+	return &api{base: strings.TrimRight(base, "/"), roots: roots, http: client, version: version}, nil
 }
 
 // do sends in as JSON and decodes the answer into out. 304 is no error (out stays as it is).
@@ -177,6 +189,8 @@ type accessToken struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expiresAt"`
 	Role      string    `json:"role"`
+	// Attestation: Veilplane's signature over cluster, node, the nonce and expiresAt (attest.go)
+	Attestation string `json:"attestation"`
 }
 
 func (a *api) token(ctx context.Context, cluster, node string, key ed25519.PrivateKey) (*accessToken, error) {
@@ -190,7 +204,13 @@ func (a *api) token(ctx context.Context, cluster, node string, key ed25519.Priva
 		"cluster": cluster, "node": node, "time": now, "nonce": nonce,
 		"signature": base64.StdEncoding.EncodeToString(ed25519.Sign(key, []byte(msg))),
 	}, &out, nil)
-	return &out, err
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyAttestation(cluster, node, nonce, out.ExpiresAt, out.Attestation); err != nil {
+		return nil, fmt.Errorf("%s: %w", a.base, err)
+	}
+	return &out, nil
 }
 
 // ---------------------------------------------------------------- config
@@ -325,6 +345,11 @@ func (t *tokens) RequireTransportSecurity() bool { return t.secure }
 // for development), the identity in the access token. A proxy in front of the backend can end
 // TLS: nothing depends on the connection itself.
 func dial(addr string, useTLS bool, roots *x509.CertPool, tok *tokens) (*grpc.ClientConn, error) {
+	for _, a := range strings.Split(addr, ",") { // proxy.Target takes several, comma separated
+		if err := checkGRPC(strings.TrimSpace(a), useTLS); err != nil {
+			return nil, err
+		}
+	}
 	target, resolverOpt, firstHost := proxy.Target(addr)
 	creds := insecure.NewCredentials()
 	if useTLS {

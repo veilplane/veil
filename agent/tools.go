@@ -210,8 +210,11 @@ func Leave(ctx context.Context, p Paths, version string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.api.do(ctx, "POST", "/agent/v1/leave", t, nil, nil, nil)
-	return err
+	if _, err = s.api.do(ctx, "POST", "/agent/v1/leave", t, nil, nil, nil); err != nil {
+		return err
+	}
+	// for "apt purge": the state of a node that left may be deleted (packaging/postremove.sh)
+	return os.WriteFile(p.state(leftMarker), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
 }
 
 // ReadStatus reads the status file.
@@ -267,10 +270,16 @@ func FormatStatus(s *Status) string {
 				if p.Endpoint != "" {
 					d += " " + p.Endpoint
 				}
+				if p.RTT > 0 {
+					d += fmt.Sprintf("  %.1f ms", p.RTT*1000)
+				}
 				if p.Refused != "" {
 					d = p.Refused
 				}
 				fmt.Fprintf(&b, "         %-20s %-15s %-13s %-12s %s\n", p.Node, orDash(p.Address), orDash(p.Role), p.State, d)
+				if p.Problem != "" {
+					fmt.Fprintf(&b, "           ! %s\n", p.Problem)
+				}
 			}
 		}
 	}

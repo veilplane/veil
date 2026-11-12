@@ -134,6 +134,52 @@ func (p *proxy) Revision() int64 { return p.rep.current() }
 // Shutdown stops serving and persists a final checkpoint.
 func (p *proxy) Shutdown() { p.shutdown() }
 
+// WriteMetrics writes the proxy's metrics in Prometheus' text format (the ops address's /metrics,
+// and the agent's metrics address).
+func (p *proxy) WriteMetrics(w io.Writer) {
+	failed := 0
+	if p.rep.err() != nil {
+		failed = 1
+	}
+	p.rep.mu.RLock()
+	rev, base, keys := p.rep.rev, p.rep.base, len(p.rep.order)
+	p.rep.mu.RUnlock()
+	fmt.Fprintf(w, "# TYPE veil_build_info gauge\nveil_build_info{version=%q} 1\n", Version)
+	fmt.Fprintf(w, "# TYPE veil_replica_failed gauge\nveil_replica_failed %d\n", failed)
+	fmt.Fprintf(w, "# TYPE veil_replica_revision gauge\nveil_replica_revision %d\n", rev)
+	fmt.Fprintf(w, "# TYPE veil_replica_base_revision gauge\nveil_replica_base_revision %d\n", base)
+	fmt.Fprintf(w, "# TYPE veil_replica_tracked_keys gauge\nveil_replica_tracked_keys %d\n", keys)
+	fmt.Fprintf(w, "# TYPE veil_backend_floor_revision gauge\nveil_backend_floor_revision %d\n", p.fresh.floor())
+	fmt.Fprintf(w, "# TYPE veil_watch_streams gauge\nveil_watch_streams %d\n", p.metrics.watches.Load())
+	ages := p.rep.peerAges(time.Now())
+	peers := make([]string, 0, len(ages))
+	silent := 0
+	for n, a := range ages {
+		peers = append(peers, n)
+		if a > p.silentAfter {
+			silent++
+		}
+	}
+	sort.Strings(peers)
+	fmt.Fprintf(w, "# TYPE veil_peers_silent gauge\nveil_peers_silent %d\n", silent)
+	fmt.Fprintf(w, "# TYPE veil_peer_checkpoint_age_seconds gauge\n")
+	for _, n := range peers {
+		fmt.Fprintf(w, "veil_peer_checkpoint_age_seconds{node=%q} %.0f\n", n, ages[n].Seconds())
+	}
+	p.metrics.mu.Lock()
+	keysSorted := make([]string, 0, len(p.metrics.requests))
+	for k := range p.metrics.requests {
+		keysSorted = append(keysSorted, k)
+	}
+	sort.Strings(keysSorted)
+	fmt.Fprintf(w, "# TYPE veil_grpc_requests_total counter\n")
+	for _, k := range keysSorted {
+		method, code, _ := strings.Cut(k, " ")
+		fmt.Fprintf(w, "veil_grpc_requests_total{method=%q,code=%q} %d\n", method, code, p.metrics.requests[k].Load())
+	}
+	p.metrics.mu.Unlock()
+}
+
 // Target turns a backend address list into a gRPC target. Several backend instances can be given as
 // one DNS name with several addresses ("backend.veilplane.com:443", resolved again whenever a
 // connection fails) or as a list ("10.0.0.1:2379,10.0.0.2:2379"). firstHost is the default
@@ -383,49 +429,7 @@ func opsHandler(p *proxy) http.Handler {
 		}
 		fmt.Fprint(w, content)
 	})
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
-		failed := 0
-		if p.rep.err() != nil {
-			failed = 1
-		}
-		p.rep.mu.RLock()
-		rev, base, keys := p.rep.rev, p.rep.base, len(p.rep.order)
-		p.rep.mu.RUnlock()
-		fmt.Fprintf(w, "# TYPE veil_build_info gauge\nveil_build_info{version=%q} 1\n", Version)
-		fmt.Fprintf(w, "# TYPE veil_replica_failed gauge\nveil_replica_failed %d\n", failed)
-		fmt.Fprintf(w, "# TYPE veil_replica_revision gauge\nveil_replica_revision %d\n", rev)
-		fmt.Fprintf(w, "# TYPE veil_replica_base_revision gauge\nveil_replica_base_revision %d\n", base)
-		fmt.Fprintf(w, "# TYPE veil_replica_tracked_keys gauge\nveil_replica_tracked_keys %d\n", keys)
-		fmt.Fprintf(w, "# TYPE veil_backend_floor_revision gauge\nveil_backend_floor_revision %d\n", p.fresh.floor())
-		fmt.Fprintf(w, "# TYPE veil_watch_streams gauge\nveil_watch_streams %d\n", p.metrics.watches.Load())
-		ages := p.rep.peerAges(time.Now())
-		peers := make([]string, 0, len(ages))
-		silent := 0
-		for n, a := range ages {
-			peers = append(peers, n)
-			if a > p.silentAfter {
-				silent++
-			}
-		}
-		sort.Strings(peers)
-		fmt.Fprintf(w, "# TYPE veil_peers_silent gauge\nveil_peers_silent %d\n", silent)
-		fmt.Fprintf(w, "# TYPE veil_peer_checkpoint_age_seconds gauge\n")
-		for _, n := range peers {
-			fmt.Fprintf(w, "veil_peer_checkpoint_age_seconds{node=%q} %.0f\n", n, ages[n].Seconds())
-		}
-		p.metrics.mu.Lock()
-		keysSorted := make([]string, 0, len(p.metrics.requests))
-		for k := range p.metrics.requests {
-			keysSorted = append(keysSorted, k)
-		}
-		sort.Strings(keysSorted)
-		fmt.Fprintf(w, "# TYPE veil_grpc_requests_total counter\n")
-		for _, k := range keysSorted {
-			method, code, _ := strings.Cut(k, " ")
-			fmt.Fprintf(w, "veil_grpc_requests_total{method=%q,code=%q} %d\n", method, code, p.metrics.requests[k].Load())
-		}
-		p.metrics.mu.Unlock()
-	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) { p.WriteMetrics(w) })
 	return mux
 }
 

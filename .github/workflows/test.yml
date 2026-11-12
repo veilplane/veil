@@ -180,6 +180,15 @@ jobs:
           systemctl cat veil.service
           bash -c 'source /usr/share/bash-completion/completions/veilctl; COMP_WORDS=(veilctl clusters fe); COMP_CWORD=2; _veilctl; [ "${COMPREPLY[*]}" = features ]'
           sudo apt-get remove -y veil veilctl
+          # purge: the state of a node that never left stays, that of one that left goes
+          sudo apt-get install -y ./dist/veil_*_amd64.deb
+          sudo install -d -m 700 /var/lib/veil && sudo touch /var/lib/veil/identity.json
+          sudo apt-get purge -y veil
+          sudo test -e /var/lib/veil/identity.json && test ! -e /etc/veil
+          sudo apt-get install -y ./dist/veil_*_amd64.deb
+          sudo touch /var/lib/veil/left
+          sudo apt-get purge -y veil
+          sudo test ! -e /var/lib/veil
           sudo apt-get install -y rpm
           for p in veil veilctl; do
             rpm -qip dist/$p-*.x86_64.rpm
