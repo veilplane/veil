@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>veil packages</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+  footer { margin-top: 3rem; font-size: .875rem; }
+  pre { overflow-x: auto; padding: .75rem 1rem; border: 1px solid #8884; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>veil packages</h1>
+<p>Packages and repository metadata are signed with <a href="veil-packages.asc">this key</a>.
+Source and releases: <a href="https://github.com/veilplane/veil">github.com/veilplane/veil</a>.</p>
+<h2>In one step</h2>
+<p>Adds the repository below (apt or dnf), installs veil and joins the node:</p>
+<pre>curl -fsSL https://packages.veilplane.com/install.sh | sudo sh -s -- join &lt;join code&gt;</pre>
+<p>Or <code>-- try</code> for a trial cluster without an account, or no arguments to install only.</p>
+<h2>Debian, Ubuntu</h2>
+<pre>sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSLo /etc/apt/keyrings/veil.asc https://packages.veilplane.com/veil-packages.asc
+echo "deb [signed-by=/etc/apt/keyrings/veil.asc] https://packages.veilplane.com/deb ./" | sudo tee /etc/apt/sources.list.d/veil.list
+sudo apt update &amp;&amp; sudo apt install veil</pre>
+<h2>Fedora, RHEL, Rocky, Alma</h2>
+<pre>sudo curl -fsSLo /etc/yum.repos.d/veil.repo https://packages.veilplane.com/rpm/veil.repo
+sudo dnf install veil</pre>
+<p>Then put the agent's configuration in <code>/etc/veil/agent.json</code> and run
+<code>sudo systemctl enable --now veil</code>.</p>
+<h2>veilctl</h2>
+<p>Veilplane from the terminal (organizations, clusters, nodes, API tokens), from the same
+repository: <code>sudo apt install veilctl</code> or <code>sudo dnf install veilctl</code>, then
+<code>veilctl login</code>. For macOS and Windows: the binaries of the
+<a href="https://github.com/veilplane/veil/releases/latest">latest release</a>.</p>
+<footer><a href="https://veilplane.com/legal">Legal notice and privacy</a></footer>
+</body>
+</html>

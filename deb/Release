@@ -1,0 +1,19 @@
+Architectures: amd64 arm64
+Codename: stable
+Date: Thu, 12 Nov 2026 13:05:05 +0000
+Description: The veil agent
+Label: Veilplane
+Origin: Veilplane
+Suite: stable
+MD5Sum:
+ f546571160819a829432f44c8f0885ad            25764 Packages
+ 1969566bb129c9660786c56c3d384074             6817 Packages.gz
+SHA1:
+ f122727dbef4ed06ea293ebf5572e1486745c9ee            25764 Packages
+ 834248ee8716b5d0d903058cf8a39996daf41fc9             6817 Packages.gz
+SHA256:
+ 7f3be938a58abcf29b4a1d18943dcdf3e1b53f1719ae7b3dee524aaee7368042            25764 Packages
+ ab64dcd9e53f1beaa694f5482492e3af0c52afa3db7a8d359c878be7a535fbb3             6817 Packages.gz
+SHA512:
+ 208c457f059405005db22cc3eb558a5628b348a605f508882306d38431c27b50b5ba5466abf0f9d348ec1286a1320c8ef9b500c93b216e2c521bf8c20f8af4ce            25764 Packages
+ df4c3d639442aed61a97df3b612074d63bcb97ceedc2fde3a6f7fd2695aa0126a65459773852a1d9d402d9850abb265f2f71577996cd7001137a7a54254e18f7             6817 Packages.gz

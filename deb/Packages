@@ -1,0 +1,618 @@
+Package: veil
+Architecture: amd64
+Version: 0.1.0-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16303
+Depends: iproute2
+Filename: ./veil_0.1.0-1_amd64.deb
+Size: 6304254
+MD5sum: bb0abbcb09049607d4ad6aa18326c209
+SHA1: 1bf096d1bef4aa0cb00b02e33eb62b4cfe6c3590
+SHA256: 56ab8901182d86d6a9c8bebee281d6ebbc653a78995238b78dca7abb92b4f10c
+SHA512: 2b88b430ef6915c9d0092c971be4b7a6ba0f9e6c0f4a2500fdb8fd719c4ebdd8184ef4b6de2c3cc7bcadf014dd1d96503039575f47293153bc5c1fecaffd17bc
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.0-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15259
+Depends: iproute2
+Filename: ./veil_0.1.0-1_arm64.deb
+Size: 5717308
+MD5sum: b36dd3a452d0b6d0039ff0d931da2968
+SHA1: 7a2b638b216c54f7b59d3bd165ee3c43f9573181
+SHA256: 7767f5c68937790a48cea1e22d4882697db78dab1e55f976c0277bf58134bfa3
+SHA512: 518e68a15213b4e2b867499ccb890d905307e7793cdb71a7e11f6b0ad585854f458b56ed785840b373a0805727eeaaad6982e3087e0c6bb59ce9d5d65dae0f49
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.1-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16303
+Depends: iproute2
+Filename: ./veil_0.1.1-1_amd64.deb
+Size: 6304384
+MD5sum: 5a02dbf63c5e6a31f3e45e8a60736bd7
+SHA1: f5918cf0c8715fbb4ff0cf8e80e210eefc04be22
+SHA256: 87072fad811eac899830694a8820a14b6ab1a9bf8e8f36265d6ff382633d1884
+SHA512: 94b299cedad972ea1b7d43ba5a16795dbc63d04b82fecd0db77943e7814c6a1020bab2c070985a438c6f6ca9de8c70046180a08e271b60047efa43dcd859f85d
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.1-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15259
+Depends: iproute2
+Filename: ./veil_0.1.1-1_arm64.deb
+Size: 5717432
+MD5sum: 585b7bb11c65482b9991551991349d7f
+SHA1: bbbdff082f5159be64322c6ed65c7086275d3b9b
+SHA256: 127d78e93e24799aa24c270b8a95abb4a8f2bdaf69442a0113f16ae0389bbd44
+SHA512: 34a47bbd78d4d677d1f69a6491f66260c63b388f6c6983792a8e8803afa55cf56d972be7b996272bf1f64ea7b32757157ec1bcbe5ef0662ad040b8ea264c1085
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.10-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16431
+Depends: iproute2
+Filename: ./veil_0.1.10-1_amd64.deb
+Size: 6348786
+MD5sum: dd0a6500d88d7be739a5c465acb38957
+SHA1: 12a615ac725c47a061374619def5927096ab5798
+SHA256: e76c7a2c9b0536ce4e5d2ed28438c8686f3420e57afaebcadf622813eab96bcd
+SHA512: 093406c573650611e6319d0e517d62dd8b64a8abcc4258e2fe78e902061deff5f55e6fbdb849330f053cccce96b7b826431e444098303cd9242b5b5e65fd5061
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.10-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15427
+Depends: iproute2
+Filename: ./veil_0.1.10-1_arm64.deb
+Size: 5756728
+MD5sum: b3d32a61a6b612ed85a83339e74d527f
+SHA1: 7dce663b3c0e87ee3b9db635eefb1efd015560fb
+SHA256: e8d663f30041089926a323bd7f2165bbbe20ac440de9373fcc7553bb48b0f465
+SHA512: 8ab5d77b8020e5551fa54206b8f322805d92a698518db03a9d669d906dc57b108764b0ec088f761407643bbed0ff7c2c32564466fbe542e9300527aef015a2e9
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.11-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15476
+Depends: iproute2
+Filename: ./veil_0.1.11-1_amd64.deb
+Size: 6067280
+MD5sum: b7db83b3115ee9279c03c3449ff0e35b
+SHA1: 8cd70ef893ba062e946db123a54839744ba5703c
+SHA256: f5957efde1265bb0416d451c40b797121524d4d68bfea4fe716372361ff25d52
+SHA512: 972eee7662a6b8c0bd73bd696490ba4120a12aa24190de22fc9f79dd4295c27e3573c4b9749adaa202b4845b43a1395febc2aa79f1258a22687eb86c9172ecf4
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.11-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 14532
+Depends: iproute2
+Filename: ./veil_0.1.11-1_arm64.deb
+Size: 5532852
+MD5sum: aa8c338f130ff65f7c05ef29605969ae
+SHA1: a567634fa57320ac1f1602d08e30bd51c37dc8f7
+SHA256: 6b970e0174aa5de24ebd47ba7ed9eff8fc75faa1a60986e44372088d13c3fbf6
+SHA512: 1e727926f62d97a7cc31086c9129b891e814debefb8a30abfc66686fd8354eb2a78b83bf1fd289c6b5fc0960b98c598b1755ebfa8ad18b56c0863ed4ae3906d9
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.2-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16308
+Depends: iproute2
+Filename: ./veil_0.1.2-1_amd64.deb
+Size: 6306838
+MD5sum: 3575465df117777c40fbba7ba80abd06
+SHA1: e6058bdf5e6f7097bbbabe12b4875219319c9a01
+SHA256: ddcf2dc94c41324b332e2ba2f40c30b9f617f0cf6ca5ee33b6d846bafb6eaf95
+SHA512: 60103829a6f0f85bc83b1c11ce7f0bbc64a9fc7c2755469e2c970ea1fcb013141b18666d9e127edc04b5e29952b8da0bb539f8ba3b0b93ff9ecd5435438184e9
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.2-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15260
+Depends: iproute2
+Filename: ./veil_0.1.2-1_arm64.deb
+Size: 5720220
+MD5sum: c69037f8a0f7fd05e6a39f365327cda5
+SHA1: f659ec7b902a6222898aa14c176a74a7e3137f25
+SHA256: 1d0ad767488c8baa82c041faf0b3275eb4154ec24bc6226887facf1758dd8d1e
+SHA512: 6883aeaa1bc3543ca988873a57d408901aaf78f755acf92abe88e1785c507c3907886eb279a432ad91b2d37144eea99da2ff205fcd332d6a30b909857ff3b92e
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.3-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16313
+Depends: iproute2
+Filename: ./veil_0.1.3-1_amd64.deb
+Size: 6308724
+MD5sum: 05900efbd5470c72ae4e7fc48d53773b
+SHA1: 64f249e2b80416a72787bbdb03bf83b6eb9f48a2
+SHA256: 47988947917bb8e414eac56eea652abb387c314303d5d4529dc0920f7eed1d1e
+SHA512: 8dc92382ec336cc346d5e423e882837260ec39bfc5c2f3a9b8db9d93f75118dfe2d5308e3c36a0e00a2a074a71c5fc1e4e675f4457223938a02405fd072d5e82
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.3-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15265
+Depends: iproute2
+Filename: ./veil_0.1.3-1_arm64.deb
+Size: 5722252
+MD5sum: d4a786ddc5473a6fd8f3f6483e77dad1
+SHA1: e06b1d67d927c51e665826946017991e00f94800
+SHA256: 04da2c27082ba734196503084863e3017d49054b19287a31a39ae25ce11460c7
+SHA512: 58b75e2344a037be4cdceb5510cbe43fa4c9bf19397539661148e6aa33ab340d3a974ab705239a740594197fe74217a291592c1ef57b91a7d405e05d8e61abdf
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.4-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16313
+Depends: iproute2
+Filename: ./veil_0.1.4-1_amd64.deb
+Size: 6308726
+MD5sum: b30c38179704d61b27320ef8a515a282
+SHA1: 3dc3f7f7d1c8f2b0fb0fab2e193135a09a82e1d8
+SHA256: 7862e90852de4c9f526ced5a212470cfb539aaa797a237d1490e5bf1e946a636
+SHA512: 408ec924f50e1a074d896cbf42f501ce6117725a8a85efbec974e8c644a33cae9c0776776298852ffd911481502b902549ff33eeb04be358166f157a43d36bf7
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.4-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15265
+Depends: iproute2
+Filename: ./veil_0.1.4-1_arm64.deb
+Size: 5722246
+MD5sum: 1d2cdabf526b82f0b67af2d8a38351d7
+SHA1: 896122322d418bb8e3edcd2d0b2ccecb2d19ee67
+SHA256: 44784c23dccee2c3212e2953a8c529d7a70b17c9e48286161dcba08d66716960
+SHA512: 6bb4c2219bdb979ffc37e9ab90c33efd7c97566f727d25edc8670cec51f8cd9ff60d7fb7280f3aea5fda8996522c9cd576c7bfaef4844401724a35933fdd42fc
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.6-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16325
+Depends: iproute2
+Filename: ./veil_0.1.6-1_amd64.deb
+Size: 6314334
+MD5sum: 43059c6b1bd9e1d0b1c7803ec5b363a9
+SHA1: a4013a3a3e07f4bb5e3d540a1551740b95a6df07
+SHA256: 37bffd2a06b38278adbf5caf6ee1081791f889aa33588dd27f6a75956c364f87
+SHA512: 135128cd086689462de464307d09818ccc42763b5d901617a47f9eb2c1d53b39735af275eddd9bfdc4475bb6afd02fe851f4a186bbccee61a7faf187dfcc056c
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.6-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15265
+Depends: iproute2
+Filename: ./veil_0.1.6-1_arm64.deb
+Size: 5725990
+MD5sum: 3ada91a2f16aaf03c76f0c1f96a27864
+SHA1: 3e986814f563e31f3a693ae178c0ab67b42620fe
+SHA256: 96380d8355f678f588b6501878a937134218b5b253efbf9e30ad5a8799c2f09c
+SHA512: 253147cec8a47f634feb224c347249ba42fd99555bb9a00be2b55dff829e1af945e58408966402a4dbb0d44615bbc1ff445cf635c900be719f62137dad7465ae
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.7-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16333
+Depends: iproute2
+Filename: ./veil_0.1.7-1_amd64.deb
+Size: 6317364
+MD5sum: c410960f5a242996a5f7827ae29446a6
+SHA1: d7d838efb5f13e12c43492693c3bef1a4e74c771
+SHA256: 6de80af922d7b4b9b83a64c34758f8d4ff10dba6c57cf8658f8dbd988a01af8e
+SHA512: a65ea6fd27071ba204cd8b953cdbc3afe92d134daa40cd9b5d2e8961baa020e3f336620637c4d7e406a09c68e9218fe83ac3a2953d402c806a7dcfdd51304f1c
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.7-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15329
+Depends: iproute2
+Filename: ./veil_0.1.7-1_arm64.deb
+Size: 5728644
+MD5sum: f3bdbdd67b554e4207b3edc18b325c7c
+SHA1: b1f0cbaa73b74c82847cd3a745f6cb37c96857a6
+SHA256: 26657ce62cc91dcff5aeebcef88d07e6677efd6f5ae0a5cfe9e93391c5564eea
+SHA512: 751b38a4276a8aa3d5fdf749a2c02be204822ee243a3effd7e62c6ef7ca3d9ebe375ac0d03b6e95192349a29cc37eacc18e44ea76f15a1cc0ff2eed1a8f6cc40
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: amd64
+Version: 0.1.8-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 16415
+Depends: iproute2
+Filename: ./veil_0.1.8-1_amd64.deb
+Size: 6342326
+MD5sum: 736e56928126bf2087fe04b481a4e107
+SHA1: 069e004f2c48c2b5c1521d07aac06309383605af
+SHA256: f2be349b09d6582232b864f76ab500f35d5dc0a317f56aec484543e18f60a31f
+SHA512: c13a30aa3a67a0bb080d9fec8239fb8ffec1487ef17ad2390ab86a65252ba3a025597152a2437eb612dca25768cba755005e93ef6236aa3f9644d12b82087764
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veil
+Architecture: arm64
+Version: 0.1.8-1
+Priority: optional
+Section: net
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 15363
+Depends: iproute2
+Filename: ./veil_0.1.8-1_arm64.deb
+Size: 5752070
+MD5sum: 14502e622d1d189c377ffbd3714c6c4a
+SHA1: 3898bf73bdf69278aaaf37a1a622deff9263e704
+SHA256: 06f950a7088cf54460e9cffa83c470f93788be55c2a429633fd978202a26b155
+SHA512: 834ec3f5bcaa76b0343815b4cf5b7afdc56a598d696db81b5a82968e8858a8f6f09d6aafd43eadc081f5d20f81cd2b5c0afaeeddd9d4edeac68f399373c6e404
+Homepage: https://veilplane.com
+Description: The Veilplane agent: end-to-end encrypted etcd for Kubernetes control planes and a
+ WireGuard mesh between the nodes of a cluster. Configure /etc/veil/agent.json, then
+ "systemctl enable --now veil".
+
+Package: veilctl
+Architecture: amd64
+Version: 0.1.10-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6674
+Filename: ./veilctl_0.1.10-1_amd64.deb
+Size: 2911790
+MD5sum: 5d4a6d19c5b74b532b3bcac24c34f84c
+SHA1: f1539a84202916d553965dd5fd8b17dd86e5c620
+SHA256: 879669639c8ee7c9be64e677daa230a7d61a2df67f5d471a2b4419c66e133c76
+SHA512: 46f1c99564b6bfed23b3c3eaa97f2166b0f1382d6b64127bdc325a59dd3cddecedcae218a8b5962608774b425c2d50a7084fa41f4c74c591eae7c0aeced95e79
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: arm64
+Version: 0.1.10-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6150
+Filename: ./veilctl_0.1.10-1_arm64.deb
+Size: 2636650
+MD5sum: 9abc5e0f67f4221f1e59c34c32c86996
+SHA1: cc620f14d02aef02b1735f29dbb89d452e64cbb7
+SHA256: 76eef70bb23231b1b69cd171ddc55af288147ac06d22a07d1bf389ede38c17c7
+SHA512: 5265a598427a828c5c93052f877114c5728ca0ad8750a6ddee40a1ea64bad20b9428ddf24d75eb7cc52fde0b17d97edbda8edb43ec92e524a9ea051c4e9421c8
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: amd64
+Version: 0.1.11-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6674
+Filename: ./veilctl_0.1.11-1_amd64.deb
+Size: 2911798
+MD5sum: 38d12c1f2f190d9f265ea457a8a6b76e
+SHA1: 8b0a0872166e52761309e604efc540197cfb20fe
+SHA256: 8024ea98e98dae6fe715c1d73f9318ceafc4b05c2b079e4fce18c28f8a993736
+SHA512: 02e9cced67eae7feb4fa4060152eaeebb85571e97f003e6b8c2a8d9c0ae022fa116364bdddc2e29786c9655b4f0933bbb6cbb39fe427a17b68fb15eb141065dd
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: arm64
+Version: 0.1.11-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6150
+Filename: ./veilctl_0.1.11-1_arm64.deb
+Size: 2636652
+MD5sum: 387480f5690b2812362985db950e993e
+SHA1: c2b8cf8e5330f79bca6f466350cd44decb94d1c0
+SHA256: b0b7a73b8f960740c92e6d14367a52b47fcb3f69d9668fa2f7824adfbdb35f43
+SHA512: bfdf707468f599212aa2d0c067591995b83073e38594ae3de25b4041efcf6044b696a8e8affdff0d1602019385df58884ae068ea7dc8d7a583618c778b19770e
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: amd64
+Version: 0.1.3-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6674
+Filename: ./veilctl_0.1.3-1_amd64.deb
+Size: 2910496
+MD5sum: 38d116c93856a9b0f887d3a4fb934d32
+SHA1: 49b2027c28c78c9bc7bcaa9244cfc967c9db8387
+SHA256: 9c973605ba6b56bd0719c3c133df4fe89517089cee362a5535a0e4281ea4300c
+SHA512: 2bdb26694cd4e9260000ea4bea5c917cc5bff8cd14b4950285a01229ef29779b8d0922e8e433f880ecdf7aa952dc3c338ad9b5bca76244c7617d993f0e02bbb6
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: arm64
+Version: 0.1.3-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6150
+Filename: ./veilctl_0.1.3-1_arm64.deb
+Size: 2636052
+MD5sum: b170aea22704f9e05f75ea68f3b2e1e0
+SHA1: b123641a04326e4e91ed6149b2efcfa1ecf5d411
+SHA256: c42f76f4749640a3fbdcbd03f65a244e700d3c629058479152d52973314b5971
+SHA512: 557faee41cecd92ca58e36d5d1b34e5afca8c8ec38b5b31544eb9afe4f94d91a8eff9d3c1787231398cfc3940e8733bebd48884119746636dd3b831c718d9045
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: amd64
+Version: 0.1.4-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6674
+Filename: ./veilctl_0.1.4-1_amd64.deb
+Size: 2910498
+MD5sum: 86cc38940af6e396556d15bef89ddf3e
+SHA1: d332dc087c145a4ec19203121cd4939cf117b08b
+SHA256: 47ff7b323026d142fa69c857b5b6af5de6f17d7916b99a3569168dfe53bc8ba4
+SHA512: 4f89df490ecdd9677f2533bf621c1a1e13d53a1bd5ce57e8a091718c52e631a0275ac2f4d94e9f43a23506fc5ba0c43cbc50b483d654a82b1a052e609fe705e6
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: arm64
+Version: 0.1.4-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6150
+Filename: ./veilctl_0.1.4-1_arm64.deb
+Size: 2636054
+MD5sum: 4fe360f7216712d02cb5c7e45ec21755
+SHA1: ea14f83c786b4e966575b3d046edb61fb917956a
+SHA256: 6688a4afdcce73318b9755bcf8722481d13fc463ba8f366bc13c01a06230561e
+SHA512: 1636c21fcfa4ac4e0d67dd63753c34db2ddea50a2bdeae42d198fd316d97c03693fcad6d9c088ff2ee7bfa0d577a7e6b664e08c9dd2b2a3aeb9e037514dd2731
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: amd64
+Version: 0.1.6-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6674
+Filename: ./veilctl_0.1.6-1_amd64.deb
+Size: 2911786
+MD5sum: 69f37a3ebbd160182a2b4cf402d796ee
+SHA1: 05114328d04dddeca383b1abc1b5bf8e4a4fb278
+SHA256: 37229c1ea874723d63b6963b23e67a08516b0c0bc78902d6f532cfb91a2d3852
+SHA512: 523b9e6d36e0906eeb367d9010263c8e6f1d25697aaf8e800962db6e425b3a0e3822ef21cbfd617a3a5652f21d944c5de905bfa0ca7e3fc44192039b5b838bd6
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: arm64
+Version: 0.1.6-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6150
+Filename: ./veilctl_0.1.6-1_arm64.deb
+Size: 2636654
+MD5sum: 99116b12bde3577c8428352eb7a9337d
+SHA1: adc1570ca4ce2947f126a6657a7aaa7090e6e299
+SHA256: 92056ab386849282474b7624cf4e04a049b55b433a410047488922edc0bc4c25
+SHA512: c4f860bdb6643299070857fa74bfcda5297af5d4a777104f2349143a12af7ffb867c3416da673050b2f2962185252685e27f746a39b7836ae22b86076a42836a
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: amd64
+Version: 0.1.7-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6674
+Filename: ./veilctl_0.1.7-1_amd64.deb
+Size: 2911790
+MD5sum: 4bdb7ab1bb2f3265b33b1aaa9faf94f1
+SHA1: 02c0c4c27b9e147faa142b0aa9338a8bf1066e39
+SHA256: 7fe7f69e2dc9ea9942e3b1ce9a6ccae73cecb0e86e858dedbeac1040d1c5e45f
+SHA512: 232d91385caf06bd39b51239c50b0e3f34ec97c961536542d41b6021dbfde66ef77a89582edbe56a17eab2b57787dfc702151e95b02c2b82e244dc01c9b2d624
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: arm64
+Version: 0.1.7-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6150
+Filename: ./veilctl_0.1.7-1_arm64.deb
+Size: 2636656
+MD5sum: cc2dea6ef5cc9979bcc07b7460f51059
+SHA1: 8327d046cab5052058e51e826dfe92aabe832325
+SHA256: 4cfe59d8fc70108578f1de69a5bce7919b6c7c81854b868a5e27e21ad955d385
+SHA512: f60c8666428b78090dbd41757856c7b446560535fe854d574acee9bf8aaf6bfa5dbd9f33649f8b6b53af48237a5a251eb4d1e5950800fc8e71df582df04373eb
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: amd64
+Version: 0.1.8-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6674
+Filename: ./veilctl_0.1.8-1_amd64.deb
+Size: 2911784
+MD5sum: cd4ce3348480cc31167080cf1fe8e42f
+SHA1: 98ef6e6eb549d11474731bf806ac067a44894221
+SHA256: 8aa6af3ab51df2669edfa63dcebb7a9f27f4890b026d92ecdc826476e57f1ef5
+SHA512: c0ef27b3931a526e734e96931e6f2929fa63c137fca25bd165becd9e2f7254819ccb8857372d3f4486d5d15f5a19833d10f1ee11bffc73e23b15b6094f79bfa8
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
+Package: veilctl
+Architecture: arm64
+Version: 0.1.8-1
+Priority: optional
+Section: admin
+Maintainer: Julian Siebert <packages@veilplane.com>
+Installed-Size: 6150
+Filename: ./veilctl_0.1.8-1_arm64.deb
+Size: 2636644
+MD5sum: 72c68ce67d394e3ffb24e9b9ee748253
+SHA1: d4c2ab90bd6c4063ee16e8fa963770b5dcc646cf
+SHA256: 84d33599c428d6e6045ef4e4e4869a77fe8b0e9dc795c10758a3c6dd808e9574
+SHA512: a2e553f35295a397884d84113c293bf76d7db65ddf672346f4229e904775b6e11cfe8e20d393e9d91ec0fccfdb1e347cd82c97dae13f09914bf65fca20e49f3a
+Homepage: https://veilplane.com
+Description: Veilplane from the terminal: organizations, members, clusters, join codes, nodes, API tokens,
+ the audit log and trial clusters, through the management API. Start with "veilctl login".
+
