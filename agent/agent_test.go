@@ -705,6 +705,7 @@ func TestWorkersRenewedForANewMeshNetwork(t *testing.T) {
 
 	var mu sync.Mutex
 	handedIn := map[string]string{}
+	failedOnce := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -716,6 +717,9 @@ func TestWorkersRenewedForANewMeshNetwork(t *testing.T) {
 				{"node": "evil", "address": "10.200.0.3", "certificate": cert(other, "evil", wPub, "100.96.0.9")}, // not the mesh key's
 				{"node": "w2", "address": "192.168.1.5", "certificate": cert(k, "w2", wPub, "100.96.0.10")},       // outside the network
 			}})
+		case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/agent/v1/mesh/renewals/") && !failedOnce:
+			failedOnce = true // a backend instance restarting
+			http.Error(w, "bad gateway", http.StatusBadGateway)
 		case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/agent/v1/mesh/renewals/"):
 			var in struct{ Certificate string }
 			json.NewDecoder(r.Body).Decode(&in)
@@ -744,6 +748,11 @@ func TestWorkersRenewedForANewMeshNetwork(t *testing.T) {
 
 	cp := &Agent{paths: Paths{State: cpDir}, id: &Identity{Cluster: "c1", Node: "cp1", Role: "control-plane"}, api: client, tok: tok}
 	etag := ""
+	// the first hand-in fails: the round reports it, so the caller asks again without the ETag
+	if err := cp.renewOnce(context.Background(), "10.200.0.0/16", &etag); err == nil || len(handedIn) != 0 {
+		t.Fatalf("a failed hand-in went unreported: %v %v", err, handedIn)
+	}
+	etag = ""
 	if err := cp.renewOnce(context.Background(), "10.200.0.0/16", &etag); err != nil {
 		t.Fatal(err)
 	}
