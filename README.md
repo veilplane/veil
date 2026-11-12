@@ -503,7 +503,7 @@ Passkeys can be listed and deleted here; creating one needs a browser (the dashb
 | `mesh/` | the mesh, with its own README |
 | `grafana/veil.json` | the Grafana dashboard for the metrics (section 4) |
 | `packaging/` | the systemd unit; deb and rpm of veil and veilctl: nfpm configurations, install and removal scripts, `build-packages.sh`; `build-repo.sh` for the apt and dnf repository; `install.sh`, served by it |
-| `flake.nix`, `nix/` | the Nix package and the NixOS module; `nix/update-vendor-hash.sh` after a change to the Go dependencies |
+| `flake.nix`, `nix/` | the Nix package and the NixOS module; `nix/update-vendor-hash.sh` after a change to the Go dependencies (in pull requests, `vendor-hash.yml` does it) |
 
 ## 12. Building and testing
 
@@ -593,8 +593,16 @@ single commit to the branch `gh-pages`, which GitHub Pages serves. The workflow 
 by hand, for instance after deleting a release.
 
 **Nix and the Go dependencies.** `nix/package.nix` holds the hash of the Go dependencies
-(`vendorHash`). After a change to `go.mod` or `go.sum`, run `nix/update-vendor-hash.sh`; until
-then the Nix job in CI fails and names the right hash.
+(`vendorHash`). In a pull request that changes `go.mod` or `go.sum`, the workflow
+`vendor-hash.yml` computes it with `nix/update-vendor-hash.sh`, commits it to the pull
+request's branch as github-actions and starts the tests for that commit. Without a pull request
+(or for one from a fork), run the script yourself; until then the Nix job in CI fails and names
+the right hash.
+
+**Dependency updates.** Renovate (`renovate.json`) opens the pull requests. etcd's API, gRPC,
+protobuf, genproto and `golang.org/x` come in one, since each needs the others' newer versions;
+Renovate runs `go mod tidy` itself, so `go.sum` passes the lint job, and it ignores the
+vendorHash commits, so it keeps rebasing its branches.
 
 ## 14. Known limitations
 
