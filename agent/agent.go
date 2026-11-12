@@ -581,6 +581,7 @@ func (a *Agent) renewOnce(ctx context.Context, prefix string, etag *string) erro
 	if err != nil {
 		return err
 	}
+	var failed error
 	for _, r := range out.Workers {
 		c, err := renewCert(key, a.id.Cluster, prefix, r)
 		if err != nil {
@@ -593,10 +594,12 @@ func (a *Agent) renewOnce(ctx context.Context, prefix string, etag *string) erro
 			log.Printf("mesh: signed worker %s's certificate for its new address %s", r.Node, r.Address)
 		case statusOf(err) == http.StatusNotFound: // another control plane node was quicker
 		default:
-			log.Printf("mesh: handing in worker %s's certificate: %v", r.Node, err)
+			// The list has not changed, so waiting with its ETag would wait for nothing: try again
+			// (a backend instance restarting answers 502 for a moment).
+			failed = fmt.Errorf("handing in worker %s's certificate: %v", r.Node, err)
 		}
 	}
-	return nil
+	return failed
 }
 
 // takeRenewal: a worker outside the backend's mesh network fetches its certificate for the new
