@@ -44,6 +44,7 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -106,7 +107,7 @@ type replica struct {
 	order      []string             // all keys of the map, sorted: prefix scans are a binary search
 	hist       []revision           // revisions in (base, rev], ascending
 	digest     *big.Int             // keyed set hash of the state at rev
-	header     pb.ResponseHeader    // cluster/member ids of the backend
+	header     *pb.ResponseHeader   // cluster/member ids of the backend
 	claims     map[int64][32]byte   // digests reported by peers for revisions we have not reached
 	records    map[string]record    // checkpoint records by instance (see checkpointLoop)
 	self       string               // this instance's name in checkpoint records
@@ -331,7 +332,7 @@ func (r *replica) load(ctx context.Context, kv pb.KVClient, rev int64) error {
 	sort.Strings(order)
 	r.loaded, r.rev, r.base, r.keys, r.order, r.hist, r.digest = true, at, at, keys, order, nil, digest
 	r.baseDigest = r.digestBytes()
-	r.header = *resp.Header
+	r.header = proto.Clone(resp.Header).(*pb.ResponseHeader)
 	r.records = map[string]record{}
 	for i := sort.SearchStrings(order, checkpointPrefix); i < len(order) && strings.HasPrefix(order[i], checkpointPrefix); i++ {
 		if err := r.recordLocked(order[i], keys[order[i]][0], time.Time{}); err != nil {
@@ -700,9 +701,11 @@ func (r *replica) waitFor(ctx context.Context, rev int64) error {
 // ---------------------------------------------------------------- serving reads
 
 func (r *replica) headerLocked() *pb.ResponseHeader {
-	h := r.header
-	h.Revision = r.rev
-	return &h
+	h := &pb.ResponseHeader{Revision: r.rev}
+	if r.header != nil {
+		h.ClusterId, h.MemberId, h.RaftTerm = r.header.ClusterId, r.header.MemberId, r.header.RaftTerm
+	}
+	return h
 }
 
 func (r *replica) matches(kr keyRange, key string) bool {

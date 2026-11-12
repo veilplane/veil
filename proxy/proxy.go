@@ -69,6 +69,7 @@ import (
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // ---------------------------------------------------------------- main
@@ -315,8 +316,8 @@ func start(ctx context.Context, cfg config) (*proxy, error) {
 	pb.RegisterKVServer(p.srv, p)
 	pb.RegisterWatchServer(p.srv, p)
 	pb.RegisterLeaseServer(p.srv, p)
-	pb.RegisterMaintenanceServer(p.srv, maintenance{p})
-	pb.RegisterClusterServer(p.srv, cluster{p})
+	pb.RegisterMaintenanceServer(p.srv, maintenance{proxy: p})
+	pb.RegisterClusterServer(p.srv, cluster{proxy: p})
 	go p.srv.Serve(lis)
 	p.serving.Store(true)
 	go func() { <-ctx.Done(); p.shutdown() }()
@@ -972,6 +973,12 @@ func (p *proxy) removeCheckpoint(ctx context.Context) error {
 // ---------------------------------------------------------------- gRPC services
 
 type proxy struct {
+	// etcd's generated servers must be embedded (forward compatibility): a method etcd adds
+	// later answers Unimplemented until the proxy implements it
+	pb.UnimplementedKVServer
+	pb.UnimplementedWatchServer
+	pb.UnimplementedLeaseServer
+
 	s       *sealer
 	kv      pb.KVClient
 	watch   pb.WatchClient
@@ -1033,6 +1040,27 @@ func (p *proxy) readIndex(ctx context.Context) error {
 }
 
 // KV: reads come from the replica, writes go through txn().
+
+// rangeChunk: how many keys a RangeStream response carries at most.
+const rangeChunk = 500
+
+// RangeStream (etcd 3.7) answers like Range, in chunks: the keys in order, header, more and count
+// in the last chunk, so that merging all chunks gives Range's answer.
+func (p *proxy) RangeStream(r *pb.RangeRequest, out grpc.ServerStreamingServer[pb.RangeStreamResponse]) error {
+	resp, err := p.Range(out.Context(), r)
+	if err != nil {
+		return err
+	}
+	kvs := resp.Kvs
+	for len(kvs) > rangeChunk {
+		if err := out.Send(&pb.RangeStreamResponse{RangeResponse: &pb.RangeResponse{Kvs: kvs[:rangeChunk]}}); err != nil {
+			return err
+		}
+		kvs = kvs[rangeChunk:]
+	}
+	resp.Kvs = kvs
+	return out.Send(&pb.RangeStreamResponse{RangeResponse: resp})
+}
 
 func (p *proxy) Range(ctx context.Context, r *pb.RangeRequest) (*pb.RangeResponse, error) {
 	p.logf("Range %q %q limit=%d rev=%d count=%v", r.Key, r.RangeEnd, r.Limit, r.Revision, r.CountOnly)
@@ -1148,15 +1176,16 @@ func (p *proxy) txn(ctx context.Context, r *pb.TxnRequest, internal bool) (*pb.T
 		}
 
 		enc := &pb.TxnRequest{}
-		encCompare := func(c pb.Compare) {
+		encCompare := func(c *pb.Compare) {
+			c = proto.Clone(c).(*pb.Compare) // the caller's request stays as it was
 			c.Key = []byte(p.s.encKey(string(c.Key)))
-			enc.Compare = append(enc.Compare, &c)
+			enc.Compare = append(enc.Compare, c)
 		}
 		for _, c := range r.Compare {
-			encCompare(*c)
+			encCompare(c)
 		}
 		for k, m := range added {
-			encCompare(pb.Compare{Key: []byte(k), Target: pb.Compare_MOD, Result: pb.Compare_EQUAL,
+			encCompare(&pb.Compare{Key: []byte(k), Target: pb.Compare_MOD, Result: pb.Compare_EQUAL,
 				TargetUnion: &pb.Compare_ModRevision{ModRevision: m}})
 		}
 		receipt := map[string]int64{}
@@ -1435,6 +1464,7 @@ func (p *proxy) LeaseKeepAlive(srv pb.Lease_LeaseKeepAliveServer) error {
 
 type maintenance struct {
 	*proxy
+	pb.UnimplementedMaintenanceServer
 }
 
 func (m maintenance) Status(ctx context.Context, r *pb.StatusRequest) (*pb.StatusResponse, error) {
@@ -1473,6 +1503,7 @@ func (maintenance) Downgrade(context.Context, *pb.DowngradeRequest) (*pb.Downgra
 
 type cluster struct {
 	*proxy
+	pb.UnimplementedClusterServer
 }
 
 func (c cluster) MemberList(ctx context.Context, r *pb.MemberListRequest) (*pb.MemberListResponse, error) {

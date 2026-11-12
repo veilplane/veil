@@ -530,6 +530,54 @@ func TestAttackNormalOperationTwoInstances(t *testing.T) {
 	}
 }
 
+// RangeStream (etcd 3.7): the same keys as Range, in chunks, header, more and count in the last.
+func TestRangeStream(t *testing.T) {
+	dir := needEtcd(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	addr, _ := startEtcd(t, dir, 23794)
+	p := startProxy(t, ctx, addr)
+	kv := dial(t, p.addr)
+	n := rangeChunk + rangeChunk/2
+	for i := 0; i < n; i++ {
+		if _, err := kv.Put(ctx, &pb.PutRequest{Key: []byte(fmt.Sprintf("/registry/pods/p%04d", i)), Value: []byte("v")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := &pb.RangeRequest{Key: []byte("/registry/pods/"), RangeEnd: []byte("/registry/pods0")}
+	want, err := kv.Range(ctx, req)
+	if err != nil || len(want.Kvs) != n {
+		t.Fatalf("range: %d keys, %v", len(want.Kvs), err)
+	}
+	stream, err := kv.RangeStream(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []*mvccpb.KeyValue
+	var chunks int
+	var last *pb.RangeResponse
+	for {
+		r, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		chunks++
+		got = append(got, r.RangeResponse.Kvs...)
+		last = r.RangeResponse
+	}
+	if chunks != 2 || len(got) != n || last.Count != int64(n) || last.Header == nil || last.Header.Revision != want.Header.Revision {
+		t.Fatalf("%d chunks, %d keys, last %+v", chunks, len(got), last)
+	}
+	for i := range got {
+		if string(got[i].Key) != string(want.Kvs[i].Key) || string(got[i].Value) != "v" {
+			t.Fatalf("key %d: %s", i, got[i].Key)
+		}
+	}
+}
+
 func TestBackendTarget(t *testing.T) {
 	for _, c := range []struct{ in, target, host string }{
 		{"127.0.0.1:2379", "dns:///127.0.0.1:2379", "127.0.0.1"},

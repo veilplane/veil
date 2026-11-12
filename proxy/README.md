@@ -14,7 +14,7 @@ of its own before (veil-proxy); "the proxy" and "an instance" below mean the pro
 control plane node.
 
 Status: feature complete for kube-apiserver and k3s, not externally audited.
-Tested with k3s v1.33 and etcd v3.5 as a stand-in backend.
+Tested with k3s v1.33 and etcd v3.7 as a stand-in backend.
 
 ## Contents
 
@@ -342,9 +342,10 @@ caller, which compares the resulting digest with a checkpoint (section 8).
 
 ## 7. Request handling
 
-### Reads (`Range`)
+### Reads (`Range`, `RangeStream`)
 
-All reads are answered by `replica.serveRange`:
+All reads are answered by `replica.serveRange`. `RangeStream` (etcd 3.7) gives the same
+answer as `Range` in chunks of at most 500 keys, header, `more` and `count` in the last one:
 
 - `revision > 0`: wait until the replica has applied that revision, then read
   at it. Revisions below `base` fail with etcd's "required revision has been
@@ -648,7 +649,8 @@ them breaks the product, even if all functional tests pass.
 
 ### Adding support for a new request type
 
-Decide first whether it reads or writes. Reads must be answered from the
+Every server type embeds etcd's `Unimplemented...Server`, so a method a newer etcd API adds
+answers `Unimplemented` until it is written here. Decide first whether it reads or writes. Reads must be answered from the
 replica. Writes must go through `txn` so that pins, `prev` and receipts are
 added and the result is checked. If the request cannot be expressed that way,
 return `Unimplemented` rather than forwarding it. Add a test that runs it

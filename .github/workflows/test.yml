@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  ETCD_VERSION: v3.5.21
+  ETCD_VERSION: v3.7.3
   NFPM_VERSION: v2.47.0
   NIX_VERSION: 2.35.4
 
