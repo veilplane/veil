@@ -33,7 +33,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -478,6 +480,172 @@ func (a *Agent) join(ctx context.Context) (*Identity, error) {
 	return id, nil
 }
 
+// ---------------------------------------------------------------- a new mesh network
+
+// When the backend's mesh network changes, a control plane node takes a new address and signs
+// its own certificate (meshSetUp). A worker cannot: its certificate comes from a control plane
+// node. The backend gives each worker outside the network a new address and asks the control
+// plane nodes to sign its last certificate again for it (renewWorkers); the worker fetches the
+// result (takeRenewal). A control plane node signs only a certificate the mesh key signed before,
+// for the same cluster, node, role and WireGuard key, with nothing changed but the address: so
+// the backend cannot use this to add a member or swap a key.
+
+// meshKey: the cluster's mesh key, derived from the master key (control plane nodes only).
+func (a *Agent) meshKey() (ed25519.PrivateKey, error) {
+	master, err := LoadMasterKey(a.paths.state(masterKey))
+	if err != nil {
+		return nil, fmt.Errorf("no master key: %v", err)
+	}
+	return mesh.MeshKey(master, a.id.Cluster)
+}
+
+// inPrefix: whether address lies in the network prefix.
+func inPrefix(prefix, address string) bool {
+	p, err1 := netip.ParsePrefix(prefix)
+	ip, err2 := netip.ParseAddr(address)
+	return err1 == nil && err2 == nil && p.Contains(ip)
+}
+
+// renewal is one worker waiting for its certificate at a new address.
+type renewal struct {
+	Node        string `json:"node"`
+	Address     string `json:"address"`
+	Certificate string `json:"certificate"` // its last one
+}
+
+// renewCert signs a worker's last certificate again for its new address, after checking that the
+// mesh key signed it and that it is the worker's: nothing but the address changes.
+func renewCert(key ed25519.PrivateKey, cluster, prefix string, r renewal) (string, error) {
+	old, err := mesh.VerifyCert(key.Public().(ed25519.PublicKey), r.Certificate)
+	if err != nil {
+		return "", fmt.Errorf("worker %s: its last certificate: %v", r.Node, err)
+	}
+	if old.Cluster != cluster || old.Node != r.Node || old.Role != "worker" {
+		return "", fmt.Errorf("worker %s: its last certificate is for %s/%s (%s)", r.Node, old.Cluster, old.Node, old.Role)
+	}
+	ip, err := netip.ParseAddr(r.Address)
+	if err != nil || !inPrefix(prefix, r.Address) {
+		return "", fmt.Errorf("worker %s: new address %q is not in the mesh network %s", r.Node, r.Address, prefix)
+	}
+	c := old
+	c.Address, c.Issued = ip, time.Time{}
+	return mesh.Issue(key, c)
+}
+
+// renewWorkers: on a control plane node, as long as its mesh runs, signs the certificates of
+// workers the backend moved to a new address.
+func (a *Agent) renewWorkers(ctx context.Context, prefix string) {
+	etag := ""
+	for ctx.Err() == nil {
+		if err := a.renewOnce(ctx, prefix, &etag); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if statusOf(err) != http.StatusNotFound { // an older backend without renewals: nothing to do
+				log.Printf("mesh: renewing workers' certificates: %v", err)
+			}
+			etag = ""
+			if !sleep(ctx, retryFeature*6) {
+				return
+			}
+		}
+	}
+}
+
+func (a *Agent) renewOnce(ctx context.Context, prefix string, etag *string) error {
+	t, err := a.tok.get(ctx)
+	if err != nil {
+		return err
+	}
+	h := http.Header{}
+	if *etag != "" {
+		h.Set("If-None-Match", *etag)
+	}
+	cctx, cancel := context.WithTimeout(ctx, configWait+30*time.Second)
+	defer cancel()
+	var out struct {
+		Workers []renewal `json:"workers"`
+	}
+	resp, err := a.api.do(cctx, "GET", fmt.Sprintf("/agent/v1/mesh/renewals?wait=%d", int(configWait.Seconds())), t, nil, &out, h)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusNotModified {
+		return nil
+	}
+	*etag = resp.Header.Get("ETag")
+	if len(out.Workers) == 0 {
+		return nil
+	}
+	key, err := a.meshKey()
+	if err != nil {
+		return err
+	}
+	for _, r := range out.Workers {
+		c, err := renewCert(key, a.id.Cluster, prefix, r)
+		if err != nil {
+			log.Printf("mesh: not signing: %v", err)
+			continue
+		}
+		_, err = a.api.do(ctx, "PUT", "/agent/v1/mesh/renewals/"+url.PathEscape(r.Node), t, map[string]string{"certificate": c}, nil, nil)
+		switch {
+		case err == nil:
+			log.Printf("mesh: signed worker %s's certificate for its new address %s", r.Node, r.Address)
+		case statusOf(err) == http.StatusNotFound: // another control plane node was quicker
+		default:
+			log.Printf("mesh: handing in worker %s's certificate: %v", r.Node, err)
+		}
+	}
+	return nil
+}
+
+// takeRenewal: a worker outside the backend's mesh network fetches its certificate for the new
+// address, once a control plane node has signed it, and checks it like any other certificate.
+func (a *Agent) takeRenewal(ctx context.Context, st *meshState, priv, prefix string) error {
+	t, err := a.tok.get(ctx)
+	if err != nil {
+		return err
+	}
+	var out struct{ Address, Prefix, Certificate string }
+	if _, err := a.api.do(ctx, "GET", "/agent/v1/mesh/certificate", t, nil, &out, nil); err != nil {
+		return fmt.Errorf("the mesh network is now %s, this worker's address %s is outside it: %v", prefix, st.Address, err)
+	}
+	if out.Certificate == "" || out.Certificate == st.Certificate {
+		return fmt.Errorf("the mesh network is now %s: waiting for a control plane node to sign this worker's certificate for its new address %s",
+			prefix, out.Address)
+	}
+	pub, err := wireGuardPublic(priv)
+	if err != nil {
+		return fmt.Errorf("%s: %v", wgKey, err)
+	}
+	if err := checkRenewed(st, out.Certificate, out.Address, prefix, a.id.Cluster, a.id.Node, pub); err != nil {
+		return err
+	}
+	log.Printf("mesh: this worker moves from %s to %s (the mesh network is now %s)", st.Address, out.Address, prefix)
+	st.Address, st.Prefix, st.Certificate = out.Address, prefix, out.Certificate
+	return nil
+}
+
+// checkRenewed: the new certificate is signed by the cluster's mesh key, for this worker and its
+// WireGuard key, at the new address inside the mesh network.
+func checkRenewed(st *meshState, certificate, address, prefix, cluster, node, wgPub string) error {
+	root, err := base64.StdEncoding.DecodeString(st.MeshKey)
+	if err != nil || len(root) != ed25519.PublicKeySize {
+		return fmt.Errorf("%s: no mesh key", meshFile)
+	}
+	c, err := mesh.VerifyCert(root, certificate)
+	if err != nil {
+		return fmt.Errorf("the renewed mesh certificate: %v", err)
+	}
+	if c.Cluster != cluster || c.Node != node || c.Role != "worker" || base64.StdEncoding.EncodeToString(c.WireGuard[:]) != wgPub {
+		return errors.New("the renewed mesh certificate is not this worker's (cluster, node, role or WireGuard key)")
+	}
+	if c.Address.String() != address || !inPrefix(prefix, address) {
+		return fmt.Errorf("the renewed mesh certificate's address %s is not %s in %s", c.Address, address, prefix)
+	}
+	return nil
+}
+
 func isCode(s string) bool { return len(s) > 4 && s[:4] == "vp1." }
 
 // setUp writes the keys the join answer asks for.
@@ -812,6 +980,10 @@ func (a *Agent) runMesh(ctx context.Context, fs *FeatureStatus, remote *RemoteCo
 		if err == nil {
 			c := a.cfg.Mesh
 			a.setFeature(fs, "starting", nil)
+			rctx, stopRenewing := context.WithCancel(ctx)
+			if a.id.Role != "worker" {
+				go a.renewWorkers(rctx, st.Prefix) // workers moved to a new mesh network wait for a control plane node
+			}
 			err = mesh.Run(ctx, mesh.Config{Cluster: a.id.Cluster, Node: a.id.Node, Interface: c.Interface, ListenPort: st.Port,
 				MTU: c.MTU, Mode: c.Mode, PrivateKey: priv, Certificate: st.Certificate, MeshKey: st.MeshKey, Prefix: st.Prefix,
 				Backend: &meshBackend{api: a.api, tok: a.tok}, OnStatus: func(s mesh.Status) {
@@ -824,6 +996,7 @@ func (a *Agent) runMesh(ctx context.Context, fs *FeatureStatus, remote *RemoteCo
 						fs.State = "starting"
 					}
 				}})
+			stopRenewing()
 		}
 		if ctx.Err() != nil {
 			return
@@ -853,10 +1026,15 @@ func (a *Agent) meshSetUp(ctx context.Context, remote *RemoteConfig) (*meshState
 		if err != nil || st.Certificate == "" {
 			return nil, "", errors.New("this worker has no mesh certificate (it comes with the invite file)")
 		}
+		if want := remote.Features.Mesh.Prefix; want != "" && !inPrefix(want, st.Address) {
+			if err := a.takeRenewal(ctx, &st, priv, want); err != nil {
+				return nil, "", err
+			}
+		}
 	} else {
-		master, err2 := LoadMasterKey(a.paths.state(masterKey))
+		k, err2 := a.meshKey()
 		if err2 != nil {
-			return nil, "", fmt.Errorf("no master key: %v", err2)
+			return nil, "", err2
 		}
 		if err != nil {
 			var pub string
@@ -880,10 +1058,6 @@ func (a *Agent) meshSetUp(ctx context.Context, remote *RemoteConfig) (*meshState
 		cancel()
 		if err != nil {
 			return nil, "", fmt.Errorf("mesh address: %v", err)
-		}
-		k, err := mesh.MeshKey(master, a.id.Cluster)
-		if err != nil {
-			return nil, "", err
 		}
 		ip, err := netip.ParseAddr(addr.Address)
 		if err != nil {

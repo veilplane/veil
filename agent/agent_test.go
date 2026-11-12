@@ -7,13 +7,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -672,5 +675,102 @@ func TestTokenWithoutAttestationIsRefused(t *testing.T) {
 			t.Errorf("%s attestation: %v", name, err)
 		}
 		srv.Close()
+	}
+}
+
+// After the mesh network changed: a control plane node signs a worker's last certificate again
+// for its new address, and refuses anything the mesh key did not sign before; the worker takes
+// the result only if it is its own.
+func TestWorkersRenewedForANewMeshNetwork(t *testing.T) {
+	master := make([]byte, 32)
+	rand.Read(master)
+	cpDir, wDir := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(cpDir, masterKey), []byte(hex.EncodeToString(master)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k, _ := mesh.MeshKey(master, "c1")
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	wPriv, wPub := wireGuardKeys()
+	cert := func(key ed25519.PrivateKey, node, wg, addr string) string {
+		c := mesh.Cert{Cluster: "c1", Node: node, Role: "worker", Address: netip.MustParseAddr(addr)}
+		raw, _ := base64.StdEncoding.DecodeString(wg)
+		copy(c.WireGuard[:], raw)
+		s, err := mesh.Issue(key, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	old := cert(k, "w1", wPub, "100.96.0.8")
+
+	var mu sync.Mutex
+	handedIn := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/agent/v1/mesh/renewals":
+			w.Header().Set("ETag", `"1"`)
+			json.NewEncoder(w).Encode(map[string]any{"workers": []map[string]string{
+				{"node": "w1", "address": "10.200.0.2", "certificate": old},
+				{"node": "evil", "address": "10.200.0.3", "certificate": cert(other, "evil", wPub, "100.96.0.9")}, // not the mesh key's
+				{"node": "w2", "address": "192.168.1.5", "certificate": cert(k, "w2", wPub, "100.96.0.10")},       // outside the network
+			}})
+		case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/agent/v1/mesh/renewals/"):
+			var in struct{ Certificate string }
+			json.NewDecoder(r.Body).Decode(&in)
+			handedIn[strings.TrimPrefix(r.URL.Path, "/agent/v1/mesh/renewals/")] = in.Certificate
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == "GET" && r.URL.Path == "/agent/v1/mesh/certificate":
+			json.NewEncoder(w).Encode(map[string]string{"address": "10.200.0.2", "prefix": "10.200.0.0/16", "certificate": handedIn["w1"]})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	client, err := newAPI(srv.URL, "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := &tokens{api: client, current: &accessToken{Token: "t", ExpiresAt: time.Now().Add(time.Hour)}, issued: time.Now()}
+
+	// the worker first: nothing signed yet
+	w := &Agent{paths: Paths{State: wDir}, id: &Identity{Cluster: "c1", Node: "w1", Role: "worker"}, api: client, tok: tok}
+	st := meshState{Address: "100.96.0.8", Prefix: "100.96.0.0/16", Certificate: old,
+		MeshKey: base64.StdEncoding.EncodeToString(k.Public().(ed25519.PublicKey))}
+	if err := w.takeRenewal(context.Background(), &st, wPriv, "10.200.0.0/16"); err == nil || !strings.Contains(err.Error(), "waiting") {
+		t.Fatalf("before signing: %v", err)
+	}
+
+	cp := &Agent{paths: Paths{State: cpDir}, id: &Identity{Cluster: "c1", Node: "cp1", Role: "control-plane"}, api: client, tok: tok}
+	etag := ""
+	if err := cp.renewOnce(context.Background(), "10.200.0.0/16", &etag); err != nil {
+		t.Fatal(err)
+	}
+	if etag != `"1"` || len(handedIn) != 1 || handedIn["w1"] == "" {
+		t.Fatalf("signed %v (etag %s): only w1 may be signed", handedIn, etag)
+	}
+	c, err := mesh.VerifyCert(k.Public().(ed25519.PublicKey), handedIn["w1"])
+	if err != nil || c.Address.String() != "10.200.0.2" || c.Node != "w1" || c.Role != "worker" ||
+		base64.StdEncoding.EncodeToString(c.WireGuard[:]) != wPub {
+		t.Fatalf("renewed %+v, %v", c, err)
+	}
+
+	// the worker takes it, and would refuse one for another key or outside the network
+	if err := w.takeRenewal(context.Background(), &st, wPriv, "10.200.0.0/16"); err != nil {
+		t.Fatal(err)
+	}
+	if st.Address != "10.200.0.2" || st.Prefix != "10.200.0.0/16" || st.Certificate != handedIn["w1"] {
+		t.Fatalf("%+v", st)
+	}
+	_, otherWG := wireGuardKeys()
+	if err := checkRenewed(&st, cert(k, "w1", otherWG, "10.200.0.2"), "10.200.0.2", "10.200.0.0/16", "c1", "w1", wPub); err == nil {
+		t.Fatal("a certificate for another WireGuard key was taken")
+	}
+	if err := checkRenewed(&st, cert(other, "w1", wPub, "10.200.0.2"), "10.200.0.2", "10.200.0.0/16", "c1", "w1", wPub); err == nil {
+		t.Fatal("a certificate not signed by the mesh key was taken")
+	}
+	if err := checkRenewed(&st, cert(k, "w1", wPub, "10.201.0.2"), "10.201.0.2", "10.200.0.0/16", "c1", "w1", wPub); err == nil {
+		t.Fatal("an address outside the network was taken")
 	}
 }

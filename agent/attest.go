@@ -29,7 +29,7 @@ import (
 // productionKeys: the public halves of Veilplane's attestation keys (Ed25519, base64 of the 32
 // bytes). Two while a key is being replaced: add the new one, release, switch the backend, remove
 // the old one with a later release. A release refuses to build without one (attest_release_test.go).
-var productionKeys = []string{"iBF1udEdKs/vKEii0bL9D3rJGPNVftFy8QBHk+DdEIA="}
+var productionKeys = []string{}
 
 var (
 	attestationKeys = productionKeys

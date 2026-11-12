@@ -265,9 +265,25 @@ routes and reports (in `veil status`, its log and to the dashboard) what gets in
   interface. The other nodes' mesh packets arrive through `veil0` and are dropped; the
   WireGuard handshake still works, so the peer shows `connected` while nothing gets through.
   This is why the default mesh network is `10.200.0.0/16`. Meshes that still use an address in
-  `100.64.0.0/10` move when the backend's network changes: control plane nodes take their new
-  address by themselves, workers need a new invite. Until then,
+  `100.64.0.0/10` move when the backend's network changes (below). Until then,
   `iptables -I INPUT 1 -i veil0 -j ACCEPT` lets the mesh through (until the next reboot).
+
+**When the mesh network changes** (the backend's `veilplane.mesh.prefix`), every member moves,
+without a new invite:
+
+- a control plane node gets a new address from the backend and signs its own certificate for
+  it, as when it joined;
+- a worker cannot sign its own certificate. The backend gives it a new address and keeps its
+  last certificate; a control plane node of the cluster (the agent, while its mesh runs) checks
+  that certificate against the mesh key and signs it again with nothing changed but the
+  address: same cluster, node, role and WireGuard key. The worker fetches it
+  (`GET /agent/v1/mesh/certificate`), checks it like every certificate, and starts over at the
+  new address. Until a control plane node is online, the worker's mesh says it is waiting.
+
+So the backend still cannot add a member or swap a key: it can only ask for what the mesh key
+signed before, at another address, and it chose the addresses all along. What veil does not
+change is what uses the old address elsewhere: k3s's `node-ip` and the server URL of k3s agents
+point at mesh addresses and have to be set anew.
 
 ## 9. Configuration
 
