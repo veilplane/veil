@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: FSL-1.1-ALv2
 # Copyright 2026 Julian Siebert. See LICENSE.md.
 #
-# The veil binary and its systemd unit. vendorHash is the hash of the Go dependencies: after a
-# change to go.mod or go.sum, run nix/update-vendor-hash.sh (CI fails with the new hash otherwise).
+# The veil binary and its systemd unit. vendorHash is the hash of the Go dependencies: in a pull
+# request that changes go.mod or go.sum, the workflow vendor-hash.yml updates it; by hand:
+# nix/update-vendor-hash.sh.
 { lib, buildGoModule, version ? "dev" }:
 
 buildGoModule {

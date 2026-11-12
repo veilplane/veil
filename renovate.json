@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "postUpdateOptions": ["gomodTidy"],
+  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
+  "packageRules": [
+    {
+      "description": "etcd's API, gRPC, protobuf, genproto and golang.org/x depend on each other: one pull request, never half of them",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "go.etcd.io/etcd/**",
+        "google.golang.org/grpc",
+        "google.golang.org/protobuf",
+        "google.golang.org/genproto/**",
+        "golang.org/x/**"
+      ],
+      "groupName": "etcd, gRPC and protobuf"
+    }
+  ]
+}

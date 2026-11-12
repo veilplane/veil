@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: FSL-1.1-ALv2
+# Copyright 2026 Julian Siebert. See LICENSE.md.
+#
+# A pull request that changes the Go dependencies (Renovate's, or anyone's in this repository)
+# also changes the hash of them that the Nix package pins (vendorHash in nix/package.nix). This
+# computes it with nix/update-vendor-hash.sh and commits it to the pull request's branch, then
+# starts the tests for that commit: a commit pushed with this workflow's token starts no
+# workflows by itself. Renovate ignores the commit (gitIgnoredAuthors in renovate.json) and keeps
+# its branch up to date; the next change runs this again.
+
+name: Nix vendorHash
+
+on:
+  pull_request:
+    paths: [go.mod, go.sum, nix/package.nix, flake.nix, flake.lock]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vendor-hash-${{ github.head_ref }}
+  cancel-in-progress: true
+
+env:
+  NIX_VERSION: 2.35.4
+
+jobs:
+  update:
+    name: Update vendorHash
+    # not for pull requests from forks: their branches are not ours to push to
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write # the commit
+      actions: write # starting the tests for it
+    steps:
+      - name: Check out the pull request's branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install Nix ${{ env.NIX_VERSION }}
+        run: |
+          sh <(curl -fsSL "https://nixos.org/releases/nix/nix-${NIX_VERSION}/install") --no-daemon
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+
+      - name: Compute vendorHash
+        run: nix/update-vendor-hash.sh
+
+      - name: Commit it to the branch if it changed, and run the tests for it
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- nix/package.nix; then
+            echo "vendorHash is up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "nix: vendorHash for the changed Go dependencies" -- nix/package.nix
+          git push origin "HEAD:refs/heads/$BRANCH"
+          gh workflow run test.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"

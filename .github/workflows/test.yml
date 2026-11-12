@@ -8,6 +8,7 @@ on:
     branches: [main]
   pull_request:
   workflow_call: # used by the release workflow before anything is published
+  workflow_dispatch: # vendor-hash.yml runs it for the commit it pushes
 
 permissions:
   contents: read
